@@ -1,0 +1,2 @@
+#!/bin/bash -ue
+gcc -g -Inacl/include/amd64 main.c nacl/lib/amd64/libnacl.a

@@ -1,0 +1,5 @@
+#!/bin/bash -ue
+
+echo "Testing box hello with password"
+echo hello | ./box password | hexdump
+

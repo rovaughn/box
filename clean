@@ -1,0 +1,2 @@
+#!/bin/sh
+rm -rf nacl-20110221 libnacl.a nacl

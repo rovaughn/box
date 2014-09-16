@@ -1,0 +1,29 @@
+#!/bin/bash -e
+dir=nacl-20110221
+buildname=`hostname | sed 's/\..*//' | tr -cd '[a-z][A-Z][0-9]'`
+
+echo 'Unpacking...'
+tar xaf $dir.tar.bz2
+
+echo 'Building...'
+pushd $dir
+"./do" &
+dopid=$!
+sleep 3
+tail -f build/$buildname/log &
+tailpid=$!
+wait $dopid
+kill $tailpid
+popd
+
+echo "Creating a symbolic link to the build dir"
+ln -s $dir/build/$buildname nacl
+
+echo "Building static archive..."
+cp nacl/lib/amd64/libnacl.a .
+ar q libnacl.a nacl/lib/amd64/*.o
+
+echo "Created a file called libnacl.a"
+echo "This library needs to be available somewhere on your path."
+echo "sudo cp libnacl.a /usr/lib would be sufficient."
+
