@@ -1,5 +1,6 @@
 #!/bin/bash -ue
 
+password='password'
 echo "Testing box hello with password"
-echo hello | ./box password | hexdump
+head -c 500000 /dev/urandom | ./box "$password" | ./unbox "$password" | hexdump
 
