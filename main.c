@@ -2,11 +2,13 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include "crypto_secretbox.h"
 #include "crypto_hash_sha256.h"
 #include "randombytes.h"
 
-#define BLOCKSIZE 1024
+#define BLOCKSIZE (2<<12)
 
 #if crypto_hash_sha256_BYTES < crypto_secretbox_KEYBYTES
   #error "The hash size is too small for the secretbox key"
@@ -33,8 +35,8 @@ void box_command(uint8_t *key) {
 
     struct {
       uint16_t len;
-      uint8_t  nonce[crypto_secretbox_NONCEBYTES];
-      uint8_t  message[nread + BOX_EXTRA];
+      uint8_t  nonce[crypto_secretbox_NONCEBYTES],
+               message[nread + BOX_EXTRA];
     } outblock;
 
     outblock.len = nread;
@@ -82,7 +84,7 @@ void unbox_command(uint8_t *key) {
 
     if (crypto_secretbox_open((void*)&message, (void*)&boxed_message, sizeof boxed_message, block_header.nonce, key) == -1) {
       fprintf(stderr, "Block failed to decrypt.\n");
-      continue;
+      exit(1);
     }
 
     fwrite(message.message, sizeof message.message, 1, stdout);
@@ -90,12 +92,12 @@ void unbox_command(uint8_t *key) {
 }
 
 int main(int argc, char **argv) {
-  if (argc != 2) {
+  if (argc != 1) {
     return print_usage();
   }
 
   char *command  = argv[0],
-       *password = argv[1];
+       *password = getpass("Password: ");
 
   uint8_t key[crypto_hash_sha256_BYTES]; // Reserve hash_BYTES for the hash,
                                          // but only actually use the first
@@ -103,9 +105,9 @@ int main(int argc, char **argv) {
 
   crypto_hash_sha256(key, (unsigned char*)password, strlen(password));
 
-  if (strcmp(command, "./box") == 0) {
+  if (strcmp(command, "box") == 0) {
     box_command(key);
-  } else if (strcmp(command, "./unbox") == 0) {
+  } else if (strcmp(command, "unbox") == 0) {
     unbox_command(key);
   } else {
     return print_usage();
