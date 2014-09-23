@@ -1,5 +1,8 @@
 #!/bin/bash -ue
 
-echo "Testing box hello with password"
-echo hello | ./box password | ./unbox password
+password='password'
+echo "Boxing"
+echo 'hello' | ./box >boxed
+echo "Unboxing"
+./unbox <boxed
 

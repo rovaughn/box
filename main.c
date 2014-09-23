@@ -1,14 +1,20 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include "crypto_secretbox.h"
 #include "crypto_hash_sha256.h"
+#include "randombytes.h"
 
-#define BLOCKSIZE 1024
+#define BLOCKSIZE (2<<12)
 
 #if crypto_hash_sha256_BYTES < crypto_secretbox_KEYBYTES
   #error "The hash size is too small for the secretbox key"
 #endif
+
+#define BOX_EXTRA (crypto_secretbox_ZEROBYTES - crypto_secretbox_BOXZEROBYTES)
 
 int print_usage(void) {
   fprintf(stderr, "Usage: box 'password'\n");
@@ -16,84 +22,122 @@ int print_usage(void) {
   return 1;
 }
 
-typedef struct {
-  uint16_t len;
-  uint8_t  nonce[crypto_secretbox_NONCEBYTES];
-} block_header_t;
+uint8_t *read_stdin(size_t initialZero, size_t initialFree, size_t *used) {
+  size_t   bufferUsed = initialZero,
+           bufferFree = initialFree;
+  uint8_t *buffer     = malloc(bufferUsed + bufferFree);
 
-typedef struct {
-  block_header_t header;
-  union {
-    uint8_t boxed_bytes[crypto_secretbox_ZEROBYTES + BLOCKSIZE];
-    struct {
-      uint8_t zero_bytes[crypto_secretbox_ZEROBYTES];
-      uint8_t unboxed_bytes[BLOCKSIZE];
-    };
-  };
-} block_t;
+  memset(buffer, 0, initialZero);
 
-#define MIN_BLOCK_SIZE (2 + crypto_secretbox_NONCEBYTES + crypto_secretbox_ZEROBYTES)
+  for (;;) {
+    size_t nread = fread(&buffer[bufferUsed], 1, bufferFree, stdin);
+
+    if (nread < bufferFree) {
+      bufferUsed += nread;
+      buffer      = realloc(buffer, bufferUsed);
+      goto done;
+    } else {
+      bufferUsed += bufferFree;
+      bufferFree  = bufferUsed / 2;
+      buffer      = realloc(buffer, bufferUsed + bufferFree);
+    }
+  }
+
+done:
+  *used = bufferUsed;
+
+  return buffer;
+}
+
+void showb(uint8_t *ptr, size_t n) {
+  size_t i;
+  for (i = 0; i < n; ++i) {
+    fprintf(stderr, "%02x ", ptr[i]);
+  }
+  fprintf(stderr, "\n");
+}
 
 void box_command(uint8_t *key) {
-  block_t block;
+  size_t   bufferUsed;
+  uint8_t *buffer = read_stdin(crypto_secretbox_ZEROBYTES, 1024, &bufferUsed),
+           nonce[crypto_secretbox_NONCEBYTES];
 
-  while (1) {
-    memset(block.zero_bytes, 0, sizeof block.zero_bytes);
+  struct {
+    union {
+      struct {
+        uint8_t padding[crypto_secretbox_ZEROBYTES - crypto_secretbox_NONCEBYTES],
+                nonce[crypto_secretbox_NONCEBYTES];
+      };
+      uint8_t zero[crypto_secretbox_ZEROBYTES];
+    };
+    uint8_t message[bufferUsed];
+  } outblock;
 
-    size_t nread = fread(block.unboxed_bytes, 1, sizeof block.unboxed_bytes, stdin);
+  randombytes(nonce, sizeof nonce);
+  showb(nonce, sizeof nonce);
+  showb(buffer, bufferUsed);
 
-    if (nread == 0) {
-      break;
-    }
+  crypto_secretbox(
+    (void*)outblock.zero, (void*)buffer,
+    bufferUsed, nonce, key
+  );
 
-    block.header.len = crypto_secretbox_ZEROBYTES + nread;
+  memcpy(outblock.nonce, nonce, sizeof nonce);
 
-    /* We'll see if the fact that the source and target buffers are the same
-     * causes a problem. */
-    crypto_secretbox(
-      block.boxed_bytes, block.boxed_bytes, crypto_secretbox_ZEROBYTES + nread,
-      block.header.nonce, key
-    );
+  showb((void*)&outblock, sizeof outblock);
 
-    fwrite(&block, sizeof block - (BLOCKSIZE - nread), 1, stdout);
-  }
+  /* TODO check errors */
+  fwrite(outblock.nonce, sizeof outblock - sizeof outblock.padding, 1, stdout);
+
+  free(buffer);
 }
 
 void unbox_command(uint8_t *key) {
-  block_t block;
+  size_t bufferUsed;
+  union {
+    struct {
+      uint8_t nonce[crypto_secretbox_NONCEBYTES],
+              ciphertext[bufferUsed - crypto_secretbox_NONCEBYTES];
+    };
+    struct {
+      uint8_t boxpad[crypto_secretbox_NONCEBYTES - crypto_secretbox_BOXZEROBYTES],
+              boxzero[crypto_secretbox_BOXZEROBYTES];
+    };
+  } *inblock = (void*)read_stdin(0, 1024, &bufferUsed);
 
-  while (1) {
-    fread(&block.header, sizeof block.header, 1, stdin);
-
-    if (ferror(stdin)) {
-      break;
-    }
-
-    fread(block.boxed_bytes, block.header.len, 1, stdin);
-
-    crypto_secretbox_open(
-        block.boxed_bytes, block.boxed_bytes, block.header.len,
-        block.header.nonce, key
-    );
-
-    /* Bad subtraction */
-    fwrite(block.unboxed_bytes, block.header.len - crypto_secretbox_ZEROBYTES, 1, stdout);
+  if (bufferUsed < crypto_secretbox_NONCEBYTES) {
+    fprintf(stderr, "The message is not long enough to contain a nonce, and is thus invalid.\n");
+    exit(1);
   }
+
+  uint8_t nonce[crypto_secretbox_NONCEBYTES];
+  struct {
+    uint8_t zero[crypto_secretbox_ZEROBYTES],
+            plaintext[bufferUsed - crypto_secretbox_NONCEBYTES - BOX_EXTRA];
+  } out;
+
+  memcpy(nonce, inblock->nonce, sizeof nonce);
+  memset(inblock->boxzero, 0, sizeof inblock->boxzero);
+  crypto_secretbox_open(out.zero, inblock->boxzero, sizeof out, nonce, key);
+
+  fwrite(out.plaintext, sizeof out.plaintext, 1, stdout);
+
+  free(inblock);
 }
 
 int main(int argc, char **argv) {
-  if (argc != 2) {
+  if (argc != 1) {
     return print_usage();
   }
 
-  unsigned char *command  = (unsigned char*)argv[0],
-                *password = (unsigned char*)argv[1];
+  char *command  = argv[0],
+       *password = getpass("Password: ");
 
   uint8_t key[crypto_hash_sha256_BYTES]; // Reserve hash_BYTES for the hash,
                                          // but only actually use the first
                                          // secretbox_BYTES.
 
-  crypto_hash_sha256(key, password, strlen((char*)password));
+  crypto_hash_sha256(key, (unsigned char*)password, strlen(password));
 
   if (strcmp((char*)command, "./box") == 0) {
     box_command(key);

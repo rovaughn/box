@@ -1,0 +1,5 @@
+#!/bin/bash -ue
+rm -rf /usr/bin/{box,unbox,show,hide}
+cp a.out /usr/bin/box
+ln -s box /usr/bin/unbox
+cp show hide /usr/bin
