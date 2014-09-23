@@ -1,8 +1,14 @@
 #!/bin/bash -ue
 
-rm boxed
-echo "Boxing"
-echo 'hello' | ./box password >boxed
-echo "Unboxing"
-valgrind ./unbox password <boxed
+PATH=".:$PATH"
+
+head -c 10000 /dev/urandom >sample
+box password <sample >boxed
+unbox password <boxed >unboxed
+if diff sample unboxed >/dev/null
+then
+  echo "Success"
+else
+  echo "Failure"
+fi
 

@@ -36,8 +36,6 @@ uint8_t *read_stdin(size_t initialZero, size_t initialFree, size_t *used) {
            bufferFree = initialFree;
   uint8_t *buffer     = malloc(bufferUsed + bufferFree);
 
-  fprintf(stderr, "Allocated buffer of size %zu\n", bufferUsed + bufferFree);
-
   if (buffer == NULL) {
     fprintf(stderr, "Out of memory\n");
     exit(1);
@@ -48,19 +46,8 @@ uint8_t *read_stdin(size_t initialZero, size_t initialFree, size_t *used) {
   for (;;) {
     size_t nread = fread(&buffer[bufferUsed], 1, bufferFree, stdin);
 
-    fprintf(stderr, "Currently %zu bytes used in buffer; read %zu out of %zu free\n", bufferUsed, nread, bufferFree);
-
     if (nread < bufferFree) {
       bufferUsed += nread;
-
-      fprintf(stderr, "realloc'ing buffer to %zu bytes\n", bufferUsed);
-      /*buffer      = realloc(buffer, bufferUsed);
-
-      if (buffer == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        exit(1);
-      }*/
-
       goto done;
     } else {
       bufferUsed += bufferFree;
@@ -120,7 +107,7 @@ void box_command(uint8_t *key) {
                 zero[crypto_secretbox_BOXZEROBYTES];
       };
     };
-    uint8_t ciphertext[bufferUsed];
+    uint8_t ciphertext[bufferUsed - crypto_secretbox_ZEROBYTES + BOX_EXTRA];
   } outblock;
 
   randombytes(nonce, sizeof nonce);
@@ -130,35 +117,35 @@ void box_command(uint8_t *key) {
     bufferUsed, nonce, key
   );
 
-  fprintf(stderr, "Outblock: ");
-  showb(outblock.nonce, sizeof outblock.nonce + sizeof outblock.ciphertext);
-
   memcpy(outblock.nonce, nonce, sizeof nonce);
 
-  fprintf(stderr, "Outblock: ");
-  showb(outblock.nonce, sizeof outblock.nonce + sizeof outblock.ciphertext);
-
-  /* TODO check errors */
-  fwrite(outblock.nonce, sizeof outblock - sizeof outblock.padding, 1, stdout);
+  if (fwrite(outblock.nonce, sizeof outblock, 1, stdout) == 0) {
+    perror("fwrite");
+  }
 
   free(buffer);
 }
 
 void unbox_command(uint8_t *key) {
   size_t bufferUsed;
+  void *buffer = read_stdin(0, 1024, &bufferUsed);
 
   /* This is the block that we're going to read in.
    * The nonce is NONCEBYTES (24) bytes long, followed by an arbitrary length
    * ciphertext.  When we decrypt, we need BOXZEROBYTES (16) bytes before the
    * ciphertext to be zero'd.
    *
-   * Nonce     Ciphertext
-   * [        ][                            ]
+   * [ Nonce  ][ Ciphertext                 ]
    * +--------------------------------------+
    * |   |     |                            |
    * +--------------------------------------+
-   *     [    ] 
-   *     Zero bytes
+   *     [Zero]
+   *
+   *     [ Zero    ]
+   *     +----------------------------------+
+   *     |          |                       |
+   *     +----------------------------------+
+   *                [ Plaintext            ]
    */
   struct {
     union {
@@ -169,18 +156,18 @@ void unbox_command(uint8_t *key) {
                 zero[crypto_secretbox_BOXZEROBYTES];
       };
     };
-    uint8_t ciphertext[];
-  } *inblock = (void*)read_stdin(0, 1024, &bufferUsed);
+    uint8_t ciphertext[bufferUsed - crypto_secretbox_NONCEBYTES];
+  } *inblock = buffer;
 
-  if (bufferUsed < crypto_secretbox_NONCEBYTES) {
-    fprintf(stderr, "The message is not long enough to contain a nonce, and is thus invalid.\n");
+  if (bufferUsed < crypto_secretbox_NONCEBYTES + BOX_EXTRA) {
+    fprintf(stderr, "The message is not long enough to contain a nonce and code, and is thus invalid.\n");
     exit(1);
   }
 
   uint8_t nonce[crypto_secretbox_NONCEBYTES];
   struct {
     uint8_t zero[crypto_secretbox_ZEROBYTES],
-            plaintext[bufferUsed - crypto_secretbox_NONCEBYTES + crypto_secretbox_BOXZEROBYTES];
+            plaintext[bufferUsed - crypto_secretbox_NONCEBYTES - BOX_EXTRA];
   } out;
 
   memcpy(nonce, inblock->nonce, sizeof nonce);
@@ -191,7 +178,9 @@ void unbox_command(uint8_t *key) {
     exit(1);
   }
 
-  fwrite(out.plaintext, sizeof out.plaintext, 1, stdout);
+  if (fwrite(out.plaintext, sizeof out.plaintext, 1, stdout) == 0) {
+    perror("fwrite");
+  }
 
   free(inblock);
 }
@@ -211,9 +200,9 @@ int main(int argc, char **argv) {
 
   crypto_hash_sha256(key, (unsigned char*)password, strlen(password));
 
-  if (strcmp((char*)command, "./box") == 0) {
+  if (strcmp((char*)command, "box") == 0) {
     box_command(key);
-  } else if (strcmp((char*)command, "./unbox") == 0) {
+  } else if (strcmp((char*)command, "unbox") == 0) {
     unbox_command(key);
   } else {
     return print_usage();
