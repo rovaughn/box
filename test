@@ -1,8 +1,8 @@
 #!/bin/bash -ue
 
-password='password'
+rm boxed
 echo "Boxing"
-echo 'hello' | ./box >boxed
+echo 'hello' | ./box password >boxed
 echo "Unboxing"
-./unbox <boxed
+valgrind ./unbox password <boxed
 
