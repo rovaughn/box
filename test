@@ -2,13 +2,30 @@
 
 PATH=".:$PATH"
 
+success() {
+  echo -e "\xe2\x9c\x93 $1" >&2
+}
+
+failure() {
+  echo -e "\xe2\x9c\x97 $1" >&2
+  exit 1
+}
+
 head -c 10000 /dev/urandom >sample
 box password <sample >boxed
+
+if diff sample boxed >/dev/null
+then
+  failure "Sample and boxed don't differ"
+else
+  success "Sample and boxed differ"
+fi
+
 unbox password <boxed >unboxed
 if diff sample unboxed >/dev/null
 then
-  echo "Success"
+  success "Sample and unboxed are equal"
 else
-  echo "Failure"
+  failure "Sample and boxed aren't equal"
 fi
 
