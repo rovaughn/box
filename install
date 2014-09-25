@@ -1,4 +1,5 @@
 #!/bin/bash -ue
+./build
 rm -rf /usr/bin/{box,unbox}
 cp a.out /usr/bin/box
 ln -s box /usr/bin/unbox
