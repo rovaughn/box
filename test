@@ -1,5 +1,7 @@
 #!/bin/bash -ue
 
+gcc -g -Wall -Werror -Inacl/include/amd64 main.c nacl/lib/amd64/libnacl.a nacl/lib/amd64/randombytes.o
+
 PATH=".:$PATH"
 
 success() {
@@ -11,8 +13,10 @@ failure() {
   exit 1
 }
 
+box-generate-key >password
+
 head -c 10000 /dev/urandom >sample
-box password <sample >boxed
+valgrind -q box password <sample >boxed
 
 if diff sample boxed >/dev/null
 then
@@ -21,7 +25,7 @@ else
   success "Sample and boxed differ"
 fi
 
-unbox password <boxed >unboxed
+valgrind -q unbox password <boxed >unboxed
 if diff sample unboxed >/dev/null
 then
   success "Sample and unboxed are equal"

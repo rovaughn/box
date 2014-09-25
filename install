@@ -1,5 +1,5 @@
 #!/bin/bash -ue
-rm -rf /usr/bin/{box,unbox,show,hide}
+rm -rf /usr/bin/{box,unbox}
 cp a.out /usr/bin/box
 ln -s box /usr/bin/unbox
-cp show hide /usr/bin
+ln -s box /usr/bin/box-generate-key

@@ -9,20 +9,15 @@
 #include "randombytes.h"
 
 #define BLOCKSIZE (2<<12)
-
-#if crypto_hash_sha256_BYTES < crypto_secretbox_KEYBYTES
-  #error "The hash size is too small for the secretbox key"
-#endif
-
 #define BOX_EXTRA (crypto_secretbox_ZEROBYTES - crypto_secretbox_BOXZEROBYTES)
 
-int print_usage(void) {
+void print_usage(void) {
   fprintf(stderr, "Usage: box 'password'\n");
   fprintf(stderr, "   or: unbox 'password'\n");
-  return 1;
 }
 
-/* Read stdin until EOF into a malloc'd buffer.
+/* Read a *FILE until EOF into a malloc'd buffer.
+ *  file        - The file to read from.
  *  initialZero - Reserves this many bytes at the beginning of the buffer
  *                and zeroes all of them.
  *  initialFree - Amount of free space to initialize the buffer.  The value
@@ -31,7 +26,7 @@ int print_usage(void) {
  *                bytes, is stored in this pointer.
  *  Returns the buffer.
  */
-uint8_t *read_stdin(size_t initialZero, size_t initialFree, size_t *used) {
+uint8_t *read_file(FILE *file, size_t initialZero, size_t initialFree, size_t *used) {
   size_t   bufferUsed = initialZero,
            bufferFree = initialFree;
   uint8_t *buffer     = malloc(bufferUsed + bufferFree);
@@ -44,7 +39,7 @@ uint8_t *read_stdin(size_t initialZero, size_t initialFree, size_t *used) {
   memset(buffer, 0, initialZero);
 
   for (;;) {
-    size_t nread = fread(&buffer[bufferUsed], 1, bufferFree, stdin);
+    size_t nread = fread(&buffer[bufferUsed], 1, bufferFree, file);
 
     if (nread < bufferFree) {
       bufferUsed += nread;
@@ -81,7 +76,7 @@ void showb(uint8_t *ptr, size_t n) {
  */
 void box_command(uint8_t *key) {
   size_t   bufferUsed;
-  uint8_t *buffer = read_stdin(crypto_secretbox_ZEROBYTES, 1024, &bufferUsed),
+  uint8_t *buffer = read_file(stdin, crypto_secretbox_ZEROBYTES, 1024, &bufferUsed),
            nonce[crypto_secretbox_NONCEBYTES];
 
   /* This is the block that will be emitted.
@@ -128,7 +123,7 @@ void box_command(uint8_t *key) {
 
 void unbox_command(uint8_t *key) {
   size_t bufferUsed;
-  void *buffer = read_stdin(0, 1024, &bufferUsed);
+  void *buffer = read_file(stdin, 0, 1024, &bufferUsed);
 
   /* This is the block that we're going to read in.
    * The nonce is NONCEBYTES (24) bytes long, followed by an arbitrary length
@@ -185,27 +180,79 @@ void unbox_command(uint8_t *key) {
   free(inblock);
 }
 
-int main(int argc, char **argv) {
-  if (argc != 2) {
-    return print_usage();
+void generate_key_command(void) {
+  uint8_t key[crypto_secretbox_KEYBYTES];
+
+  randombytes(key, sizeof key);
+
+  int i;
+  for (i = 0; i < sizeof key; ++i) {
+    printf("%02x", key[i]);
   }
 
-  char *command  = argv[0],
-       *password = argv[1];
-  //   *password = getpass("Password: ");
+  printf("\n");
+}
 
-  uint8_t key[crypto_hash_sha256_BYTES]; // Reserve hash_BYTES for the hash,
-                                         // but only actually use the first
-                                         // secretbox_BYTES.
+#if crypto_hash_sha256_BYTES != crypto_secretbox_KEYBYTES
+  #error "The hash size is too small for the secretbox key"
+#endif
 
-  crypto_hash_sha256(key, (unsigned char*)password, strlen(password));
+void get_key(uint8_t *key, int argc, char **argv) {
+  if (argc == 1) {
+    char *password = getpass("Password: ");
 
-  if (strcmp((char*)command, "box") == 0) {
-    box_command(key);
-  } else if (strcmp((char*)command, "unbox") == 0) {
-    unbox_command(key);
+    if (password == NULL) {
+      perror("getpass");
+      exit(1);
+    }
+
+    crypto_hash_sha256(key, (unsigned char*)password, strlen(password));
+  } else if (argc == 2) {
+    char *keyfileName = argv[1];
+    FILE *keyfile = fopen(keyfileName, "rb");
+
+    if (keyfile == NULL) {
+      fprintf(stderr, "Opening keyfile '%s': ", keyfileName);
+      perror("");
+      exit(1);
+    }
+
+    size_t keyfileContentsLength;
+    uint8_t *keyfileContents = read_file(keyfile, 0, 64, &keyfileContentsLength);
+    
+    if (fclose(keyfile) == EOF) {
+      perror("fclose keyfile");
+      exit(1);
+    }
+
+    crypto_hash_sha256(key, keyfileContents, keyfileContentsLength);
   } else {
-    return print_usage();
+    print_usage();
+    exit(1);
+  }
+}
+
+int main(int argc, char **argv) {
+  if (argc < 1) {
+    print_usage();
+    exit(1);
+  }
+
+  char *command = argv[0];
+
+  if (strcmp(command, "box") == 0) {
+    uint8_t key[crypto_secretbox_KEYBYTES];
+    get_key(key, argc, argv);
+    box_command(key);
+  } else if (strcmp(command, "unbox") == 0) {
+    uint8_t key[crypto_secretbox_KEYBYTES];
+    get_key(key, argc, argv);
+    unbox_command(key);
+  } else if (strcmp(command, "box-generate-key") == 0) {
+    generate_key_command();
+  } else {
+    print_usage();
+    exit(1);
   }
 
   return 0;
