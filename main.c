@@ -103,21 +103,23 @@ void box_command(uint8_t *key) {
       };
     };
     uint8_t ciphertext[bufferUsed - crypto_secretbox_ZEROBYTES + BOX_EXTRA];
-  } outblock;
+  } *outblock = malloc(sizeof *outblock);
 
   randombytes(nonce, sizeof nonce);
 
   crypto_secretbox(
-    (void*)outblock.zero, (void*)buffer,
+    (void*)outblock->zero, (void*)buffer,
     bufferUsed, nonce, key
   );
 
-  memcpy(outblock.nonce, nonce, sizeof nonce);
+  memcpy(outblock->nonce, nonce, sizeof nonce);
 
-  if (fwrite(outblock.nonce, sizeof outblock, 1, stdout) == 0) {
+  if (fwrite(outblock->nonce, sizeof *outblock, 1, stdout) == 0) {
     perror("fwrite");
+    exit(1);
   }
 
+  free(outblock);
   free(buffer);
 }
 
@@ -163,20 +165,22 @@ void unbox_command(uint8_t *key) {
   struct {
     uint8_t zero[crypto_secretbox_ZEROBYTES],
             plaintext[bufferUsed - crypto_secretbox_NONCEBYTES - BOX_EXTRA];
-  } out;
+  } *out = malloc(sizeof *out);
 
   memcpy(nonce, inblock->nonce, sizeof nonce);
   memset(inblock->zero, 0, sizeof inblock->zero);
 
-  if (crypto_secretbox_open(out.zero, inblock->zero, sizeof out, nonce, key) == -1) {
+  if (crypto_secretbox_open(out->zero, inblock->zero, sizeof *out, nonce, key) == -1) {
     fprintf(stderr, "Couldn't unbox.\n");
     exit(1);
   }
 
-  if (fwrite(out.plaintext, sizeof out.plaintext, 1, stdout) == 0) {
+  if (fwrite(out->plaintext, sizeof out->plaintext, 1, stdout) == 0) {
     perror("fwrite");
+    exit(1);
   }
 
+  free(out);
   free(inblock);
 }
 

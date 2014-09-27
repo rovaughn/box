@@ -15,7 +15,7 @@ failure() {
 
 box-generate-key >password
 
-head -c 10000 /dev/urandom >sample
+head -c 29000000 /dev/urandom >sample
 valgrind -q box password <sample >boxed
 
 if diff sample boxed >/dev/null
