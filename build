@@ -1,2 +1,2 @@
 #!/bin/bash -ue
-gcc -g -Wall -Werror -Inacl/include/amd64 main.c nacl/lib/amd64/libnacl.a nacl/lib/amd64/randombytes.o
+gcc -O3 -Wall -Werror -Inacl/include/amd64 main.c nacl/lib/amd64/libnacl.a nacl/lib/amd64/randombytes.o
