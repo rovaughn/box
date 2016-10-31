@@ -1,7 +1,5 @@
-a.out
-nacl-20110221
+libnacl
+libnacl.a
 nacl
-boxed
-sample
-unboxed
-password
+nacl-20110221
+nacl.debug

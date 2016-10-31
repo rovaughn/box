@@ -17,7 +17,7 @@ kill $tailpid
 popd
 
 echo "Creating a symbolic link to the build dir"
-ln -s $dir/build/$buildname nacl
+ln -s $dir/build/$buildname libnacl
 
 echo "Building static archive..."
 cp nacl/lib/amd64/libnacl.a .
