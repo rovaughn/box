@@ -1,5 +1,6 @@
 #!/bin/bash
-set -eux
+set -eu
+trap 'rm -rf testdir' EXIT
 
 success() {
   echo -e "\xe2\x9c\x93 $1" >&2
@@ -10,9 +11,39 @@ failure() {
   exit 1
 }
 
+nacl=$(readlink -f nacl.debug)
+
 nacl() {
-    valgrind -q ../nacl.debug $@
+    valgrind -q "$nacl" $@
 }
+
+usage_err() {
+    if $@ 2>/dev/null; then
+        failure "Should not have succeeded"
+    elif [ $? -ne 2 ]; then
+        failure "Should have returned 2"
+    fi
+}
+
+usage_err nacl
+usage_err nacl asdf
+usage_err nacl box-keypair
+usage_err nacl box
+usage_err nacl box-open
+usage_err nacl box-beforenm
+usage_err nacl box-afternm
+usage_err nacl box-open-afternm
+usage_err nacl hash
+
+rm -rf testdir
+mkdir testdir
+pushd testdir
+echo hello >m
+echo e7c22b994c59d9cf2b48e549b1e24666636045930d3da7c1acb299d1c3b7f931f94aae41edda2c2b207a36e10f8bcb8d45223e54878f5b316e7ce3b6bc019629 >expected
+nacl hash -i m -o h
+cmp --silent h expected || failure "h and expected differ"
+success "Tested hash"
+popd
 
 rm -rf testdir
 mkdir testdir
@@ -21,9 +52,10 @@ echo "Testing box..."
 nacl box-keypair -p p1 -s s1
 nacl box-keypair -p p2 -s s2
 echo 'attack at dawn' >m1
-nacl box -p p2 -s s1 -m m1 -c c
-nacl box-open -p p1 -s s2 -c c -m m2
+nacl box -p p2 -s s1 -i m1 -o c
+nacl box-open -p p1 -s s2 -i c -o m2
 cmp --silent m1 m2 || failure "m1 and m2 differ"
+success "Tested box"
 popd
 
 rm -rf testdir
@@ -35,9 +67,10 @@ nacl box-keypair -p p2 -s s2
 nacl box-beforenm -p p2 -s s1 -k k1
 nacl box-beforenm -p p1 -s s2 -k k2
 echo 'attack at dusk' >m1
-nacl box-afternm -k k1 -m m1 -c c
-nacl box-open-afternm -k k2 -c c -m m2
+nacl box-afternm -k k1 -i m1 -o c
+nacl box-open-afternm -k k2 -i c -o m2
 cmp --silent m1 m2 || failure "m1 and m2 differ"
+success "Text box beforenm"
 popd
 
 success "All tests successful"

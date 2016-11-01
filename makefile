@@ -3,7 +3,7 @@ CFLAGS := -Wall -Werror -Ilibnacl/include/amd64
 
 .PHONY: tested
 
-tested: nacl.debug
+tested: nacl.debug nacl
 	./test
 
 nacl.debug: main.c
