@@ -3,3 +3,4 @@ libnacl.a
 nacl
 nacl-20110221
 nacl.debug
+testdir

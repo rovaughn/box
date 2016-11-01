@@ -1,8 +1,5 @@
-#!/bin/bash -ue
-
-gcc -g -Wall -Werror -Inacl/include/amd64 main.c nacl/lib/amd64/libnacl.a nacl/lib/amd64/randombytes.o
-
-PATH=".:$PATH"
+#!/bin/bash
+set -eux
 
 success() {
   echo -e "\xe2\x9c\x93 $1" >&2
@@ -13,23 +10,19 @@ failure() {
   exit 1
 }
 
-box-generate-key >password
+nacl() {
+    valgrind -q ../nacl.debug $@
+}
 
-head -c 29000000 /dev/urandom >sample
-valgrind -q box password <sample >boxed
-
-if diff sample boxed >/dev/null
-then
-  failure "Sample and boxed don't differ"
-else
-  success "Sample and boxed differ"
-fi
-
-valgrind -q unbox password <boxed >unboxed
-if diff sample unboxed >/dev/null
-then
-  success "Sample and unboxed are equal"
-else
-  failure "Sample and boxed aren't equal"
-fi
+rm -rf testdir
+mkdir testdir
+pushd testdir
+echo "Testing box..."
+nacl box keypair -p p1 -s s1
+nacl box keypair -p p2 -s s2
+echo 'attack at dawn' >m1
+nacl box make -p p2 -s s1 -m m1 -c c
+nacl box open -p p1 -s s2 -c c -m m2
+cmp --silent m1 m2 || failure "m1 and m2 differ"
+popd
 
