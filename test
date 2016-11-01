@@ -18,11 +18,27 @@ rm -rf testdir
 mkdir testdir
 pushd testdir
 echo "Testing box..."
-nacl box keypair -p p1 -s s1
-nacl box keypair -p p2 -s s2
+nacl box-keypair -p p1 -s s1
+nacl box-keypair -p p2 -s s2
 echo 'attack at dawn' >m1
-nacl box make -p p2 -s s1 -m m1 -c c
-nacl box open -p p1 -s s2 -c c -m m2
+nacl box -p p2 -s s1 -m m1 -c c
+nacl box-open -p p1 -s s2 -c c -m m2
 cmp --silent m1 m2 || failure "m1 and m2 differ"
 popd
+
+rm -rf testdir
+mkdir testdir
+pushd testdir
+echo "Testing box beforenm/afternm..."
+nacl box-keypair -p p1 -s s1
+nacl box-keypair -p p2 -s s2
+nacl box-beforenm -p p2 -s s1 -k k1
+nacl box-beforenm -p p1 -s s2 -k k2
+echo 'attack at dusk' >m1
+nacl box-afternm -k k1 -m m1 -c c
+nacl box-open-afternm -k k2 -c c -m m2
+cmp --silent m1 m2 || failure "m1 and m2 differ"
+popd
+
+success "All tests successful"
 
