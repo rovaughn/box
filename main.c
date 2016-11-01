@@ -1,4 +1,6 @@
 #include <crypto_box.h>
+#include <crypto_hash.h>
+#include <randombytes.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -25,6 +27,28 @@ void to_hex(size_t len, const uint8_t src[len], char dst[2*len]) {
     }
 }
 
+uint8_t from_hex_digit(char c) {
+    if ('0' <= c && c <= '9') {
+        return c - '0';
+    } else if ('a' <= c && c <= 'f') {
+        return c - 'a' + 10;
+    } else if ('A' <= c && c <= 'F') {
+        return c - 'A' + 10;
+    } else {
+        fprintf(stderr, "Invalid hex digit: %c\n", c);
+        exit(1);
+    }
+}
+
+// TODO: Needs to be hardened as it runs on user input (what if a char isn't in
+//       [0-9a-f]
+void from_hex(size_t len, const char src[2*len], uint8_t dst[len]) {
+    int i;
+    range(i, 0, len) {
+        dst[i] = (from_hex_digit(src[2*i+0]) << 4) | from_hex_digit(src[2*i+1]);
+    }
+}
+
 void fatal(int err, const char *message) {
     if (err == -1) {
         perror(message);
@@ -32,12 +56,20 @@ void fatal(int err, const char *message) {
     }
 }
 
+void show(size_t len, uint8_t data[len]) {
+    size_t i;
+    range(i, 0, len) {
+        printf("%02x", data[i]);
+    }
+    printf("\n");
+}
+
 void store_secret_key(const char *path, size_t len, const uint8_t key[len]) {
-    int fd = open(path, O_WRONLY|O_CREAT|O_EXCL|O_TRUNC, S_IRUSR);
+    int fd = open(path, O_WRONLY, S_IRUSR);
 
     fatal(fd, "open");
 
-    static const char label[] = "secret ";
+    static const char label[] = {'s', 'e', 'c', 'r', 'e', 't', ' '};
     char buffer[sizeof label + 2*len + 1];
 
     memcpy(buffer, label, sizeof label);
@@ -49,11 +81,11 @@ void store_secret_key(const char *path, size_t len, const uint8_t key[len]) {
 }
 
 void store_public_key(const char *path, size_t len, const uint8_t key[len]) {
-    int fd = open(path, O_WRONLY|O_CREAT|O_EXCL|O_TRUNC, S_IRUSR|S_IRGRP|S_IROTH);
+    int fd = open(path, O_WRONLY, S_IRUSR|S_IRGRP|S_IROTH);
 
     fatal(fd, "open");
 
-    static const char label[] = "public ";
+    static const char label[] = {'p', 'u', 'b', 'l', 'i', 'c', ' '};
     char buffer[sizeof label + 2*len + 1];
 
     memcpy(buffer, label, sizeof label);
@@ -64,12 +96,65 @@ void store_public_key(const char *path, size_t len, const uint8_t key[len]) {
     fatal(close(fd), "close");
 }
 
-void cmd_box_keypair(int argc, char *argv[argc]) {
-    int c;
+void *load_file(int fd, size_t zero_padding, size_t *size) {
+    static const size_t initial_capacity = 1<<14;
+    static const size_t min_read = 1<<14;
 
+    size_t filled = zero_padding;
+    size_t capacity = zero_padding + initial_capacity;
+    uint8_t *buffer = malloc(capacity);
+    memset(buffer, 0, zero_padding);
+
+    for (;;) {
+        if (capacity - filled < min_read) {
+            buffer = realloc(buffer, 2*capacity);
+        }
+
+        ssize_t nr = read(fd, &buffer[filled], capacity - filled);
+
+        if (nr == -1) {
+            free(buffer);
+            perror("read");
+            exit(1);
+        } else if (nr == 0) {
+            break;
+        } else {
+            filled += nr;
+        }
+    }
+
+    *size = filled;
+
+    return buffer;
+}
+
+// TODO: what about pbkdf stuff?
+// TODO: do we really want to use labels for everything?
+void load_key(const char *path, const char *expected_label, size_t len, uint8_t key[len]) {
+    int fd = open(path, O_RDONLY);
+    fatal(fd, "open");
+
+    size_t size;
+    uint8_t *data = load_file(fd, 0, &size);
+
+    if (memcmp(data, expected_label, strlen(expected_label)) != 0) {
+        fprintf(stderr, "Expected %s to start with label %s, aborting.\n", path, expected_label);
+        exit(1);
+    }
+
+    if (size < strlen(expected_label) + 2*len) {
+        fprintf(stderr, "File %s has contains %zu bytes but we need %zu\n", path, size, strlen(expected_label) + 2*len);
+        exit(1);
+    }
+
+    from_hex(len, (char*)&data[strlen(expected_label)], key);
+}
+
+void cmd_box_keypair(int argc, char *argv[argc]) {
     char *public_keyfile = NULL;
     char *secret_keyfile = NULL;
 
+    int c;
     while ((c = getopt(argc, argv, "p:s:")) != -1) {
         switch (c) {
         case 'p':
@@ -78,26 +163,18 @@ void cmd_box_keypair(int argc, char *argv[argc]) {
         case 's':
             secret_keyfile = optarg;
             break;
-        case '?':
-            if (optopt == 'p') {
-                fprintf(stderr, "Option -p requires an argument.\n");
-            } else if (optopt == 's') {
-                fprintf(stderr, "Option -s requires an argument.\n");
-            } else {
-                fprintf(stderr, "Unknown option -%c.\n", optopt);
-            }
         default:
             abort();
         }
     }
 
     if (!public_keyfile) {
-        fprintf(stderr, "Public keyfile required.\n");
+        fprintf(stderr, "Public keyfile must be specified with -p.\n");
         exit(1);
     }
 
     if (!secret_keyfile) {
-        fprintf(stderr, "Secret keyfile required.\n");
+        fprintf(stderr, "Secret keyfile must be specified with -s.\n");
         exit(1);
     }
 
@@ -112,6 +189,165 @@ void cmd_box_keypair(int argc, char *argv[argc]) {
     memset_s(sk, 0, sizeof sk);
 }
 
+void cmd_box_make(int argc, char *argv[argc]) {
+    const char *public_keyfile = NULL;
+    const char *secret_keyfile = NULL;
+    const char *message_file = NULL;
+    const char *ciphertext_file = NULL;
+
+    {
+    char c;
+    while ((c = getopt(argc, argv, "m:c:p:s:")) != -1) {
+        switch (c) {
+        case 'p':
+            public_keyfile = optarg;
+            break;
+        case 's':
+            secret_keyfile = optarg;
+            break;
+        case 'm':
+            message_file = optarg;
+            break;
+        case 'c':
+            ciphertext_file = optarg;
+            break;
+        case '?':
+            abort();
+        }
+    }
+    }
+
+    if (!public_keyfile) {
+        fprintf(stderr, "Public keyfile must be specified with -p.\n");
+        exit(1);
+    }
+
+    if (!secret_keyfile) {
+        fprintf(stderr, "Secret keyfile must be specified with -s.\n");
+        exit(1);
+    }
+
+    if (!message_file) {
+        fprintf(stderr, "Message file must be specified with -m.\n");
+        exit(1);
+    }
+
+    if (!ciphertext_file) {
+        fprintf(stderr, "Ciphertext file must be specified with -c.\n");
+        exit(1);
+    }
+
+    uint8_t pk[crypto_box_PUBLICKEYBYTES];
+    uint8_t sk[crypto_box_SECRETKEYBYTES];
+
+    load_key(public_keyfile, "public ", sizeof pk, pk);
+    load_key(secret_keyfile, "secret ", sizeof sk, sk);
+
+    int message_fd = open(message_file, O_RDONLY);
+    fatal(message_fd, "open");
+
+    size_t mlen;
+    void *m = load_file(message_fd, crypto_box_ZEROBYTES, &mlen);
+    fatal(close(message_fd), "close");
+
+    uint8_t c[crypto_box_NONCEBYTES + mlen];
+
+    randombytes(c, crypto_box_NONCEBYTES);
+
+    crypto_box(&c[crypto_box_NONCEBYTES], m, mlen, c, pk, sk);
+
+    int ciphertext_fd = open(ciphertext_file, O_WRONLY, S_IRUSR|S_IRGRP|S_IROTH);
+    fatal(ciphertext_fd, "open");
+
+    // TODO: This unnecessarily includes the zero bytes.
+    fatal(write(ciphertext_fd, c, sizeof c), "write");
+    fatal(close(ciphertext_fd), "close");
+
+    free(m);
+}
+
+void cmd_box_open(int argc, char *argv[argc]) {
+    const char *public_keyfile = NULL;
+    const char *secret_keyfile = NULL;
+    const char *message_file = NULL;
+    const char *ciphertext_file = NULL;
+
+    {
+    char c;
+    while ((c = getopt(argc, argv, "m:c:p:s:")) != -1) {
+        switch (c) {
+        case 'p':
+            public_keyfile = optarg;
+            break;
+        case 's':
+            secret_keyfile = optarg;
+            break;
+        case 'm':
+            message_file = optarg;
+            break;
+        case 'c':
+            ciphertext_file = optarg;
+            break;
+        case '?':
+            abort();
+        }
+    }
+    }
+
+    if (!public_keyfile) {
+        fprintf(stderr, "Public keyfile must be specified with -p.\n");
+        exit(1);
+    }
+
+    if (!secret_keyfile) {
+        fprintf(stderr, "Secret keyfile must be specified with -s.\n");
+        exit(1);
+    }
+
+    if (!message_file) {
+        fprintf(stderr, "Message file must be specified with -m.\n");
+        exit(1);
+    }
+
+    if (!ciphertext_file) {
+        fprintf(stderr, "Ciphertext file must be specified with -c.\n");
+        exit(1);
+    }
+
+    uint8_t pk[crypto_box_PUBLICKEYBYTES];
+    uint8_t sk[crypto_box_SECRETKEYBYTES];
+
+    load_key(public_keyfile, "public ", sizeof pk, pk);
+    load_key(secret_keyfile, "secret ", sizeof sk, sk);
+
+    int ciphertext_fd = open(ciphertext_file, O_RDONLY);
+    fatal(ciphertext_fd, "open");
+
+    size_t full_clen;
+    uint8_t *c = load_file(ciphertext_fd, 0, &full_clen);
+    fatal(close(ciphertext_fd), "close");
+
+    // TODO: check this doesn't underflow
+    size_t clen = full_clen - crypto_box_NONCEBYTES;
+
+    uint8_t m[clen];
+
+    // TODO: Ideally change this so it doesn't include the unnecessary zeroes
+    //       but until then it should at least make sure the zero bytes are
+    //       cleared.
+    if (crypto_box_open(m, &c[crypto_box_NONCEBYTES], clen, c, pk, sk) == -1) {
+        fprintf(stderr, "open failed!\n");
+        exit(1);
+    }
+
+    int message_fd = open(message_file, O_WRONLY, S_IRUSR);
+    fatal(message_fd, "open");
+
+    // TODO: This unnecessarily includes the zero bytes.
+    fatal(write(message_fd, &m[crypto_box_ZEROBYTES], sizeof m - crypto_box_ZEROBYTES), "write");
+    fatal(close(message_fd), "close");
+}
+
 void cmd_help(int argc, char *argv[argc]) {
     fprintf(stderr, "nacl box keypair\n");
     exit(1);
@@ -120,6 +356,10 @@ void cmd_help(int argc, char *argv[argc]) {
 int main(int argc, char *argv[argc]) {
     if (argc >= 3 && strcmp(argv[1], "box") == 0 && strcmp(argv[2], "keypair") == 0) {
         cmd_box_keypair(argc - 2, &argv[2]);
+    } else if (argc >= 3 && strcmp(argv[1], "box") == 0 && strcmp(argv[2], "make") == 0) {
+        cmd_box_make(argc - 2, &argv[2]);
+    } else if (argc >= 3 && strcmp(argv[1], "box") == 0 && strcmp(argv[2], "open") == 0) {
+        cmd_box_open(argc - 2, &argv[2]);
     } else {
         cmd_help(argc, argv);
     }
@@ -127,228 +367,3 @@ int main(int argc, char *argv[argc]) {
     return 0;
 }
 
-// void print_usage(void) {
-//   fprintf(stderr, "Usage: box 'password'\n");
-//   fprintf(stderr, "   or: unbox 'password'\n");
-// }
-// 
-// /* Read a *FILE until EOF into a malloc'd buffer.
-//  *  file        - The file to read from.
-//  *  initialZero - Reserves this many bytes at the beginning of the buffer
-//  *                and zeroes all of them.
-//  *  initialFree - Amount of free space to initialize the buffer.  The value
-//  *                doesn't really matter.
-//  *  used        - The resulting size of the buffer, including the initialZero
-//  *                bytes, is stored in this pointer.
-//  *  Returns the buffer.
-//  */
-// uint8_t *read_file(FILE *file, size_t initialZero, size_t initialFree, size_t *used) {
-//   size_t   bufferUsed = initialZero,
-//            bufferFree = initialFree;
-//   uint8_t *buffer     = malloc(bufferUsed + bufferFree);
-// 
-//   if (buffer == NULL) {
-//     fprintf(stderr, "Out of memory\n");
-//     exit(1);
-//   }
-// 
-//   memset(buffer, 0, initialZero);
-// 
-//   for (;;) {
-//     size_t nread = fread(&buffer[bufferUsed], 1, bufferFree, file);
-// 
-//     if (nread < bufferFree) {
-//       bufferUsed += nread;
-//       goto done;
-//     } else {
-//       bufferUsed += bufferFree;
-//       bufferFree  = bufferUsed / 2;
-//       buffer      = realloc(buffer, bufferUsed + bufferFree);
-// 
-//       if (buffer == NULL) {
-//         fprintf(stderr, "Out of memory\n");
-//         exit(1);
-//       }
-//     }
-//   }
-// 
-// done:
-//   *used = bufferUsed;
-// 
-//   return buffer;
-// }
-// 
-// /* For debugging.  Prints n bytes from address ptr in hex. */
-// void showb(uint8_t *ptr, size_t n) {
-//   size_t i;
-//   for (i = 0; i < n; ++i) {
-//     fprintf(stderr, "%02x", ptr[i]);
-//   }
-//   fprintf(stderr, "\n");
-// }
-// 
-// /* Implements the box command.
-//  *  key - Key used to encrypt the data.
-//  */
-// void box_command(uint8_t *key) {
-//   size_t   bufferUsed;
-//   uint8_t *buffer = read_file(stdin, crypto_secretbox_ZEROBYTES, 1024, &bufferUsed),
-//            nonce[crypto_secretbox_NONCEBYTES];
-// 
-//   /* This is the block that will be emitted.
-//    * Because of nacl's design, the buffer that we write the ciphertext into will
-//    * include BOXZEROBYTES (16) bytes that will be zero'd out.  Thus, we write
-//    * the ciphertext starting at the "Zero bytes" mark, then overwrite it with
-//    * the nonce, which is NONCEBYTES (24) bytes long.
-//    *
-//    * Nonce     Ciphertext
-//    * [        ][                                ]
-//    * +------------------------------------------+
-//    * |   |     |                                |
-//    * +------------------------------------------+
-//    *     [    ] 
-//    *     Zero bytes
-//    */
-//   struct {
-//     union {
-//       uint8_t nonce[crypto_secretbox_NONCEBYTES];
-//       struct {
-//         uint8_t padding[crypto_secretbox_NONCEBYTES -
-//                         crypto_secretbox_BOXZEROBYTES],
-//                 zero[crypto_secretbox_BOXZEROBYTES];
-//       };
-//     };
-//     uint8_t ciphertext[bufferUsed - crypto_secretbox_ZEROBYTES + BOX_EXTRA];
-//   } *outblock = malloc(sizeof *outblock);
-// 
-//   randombytes(nonce, sizeof nonce);
-// 
-//   crypto_secretbox(
-//     (void*)outblock->zero, (void*)buffer,
-//     bufferUsed, nonce, key
-//   );
-// 
-//   memcpy(outblock->nonce, nonce, sizeof nonce);
-// 
-//   if (fwrite(outblock->nonce, sizeof *outblock, 1, stdout) == 0) {
-//     perror("fwrite");
-//     exit(1);
-//   }
-// 
-//   free(outblock);
-//   free(buffer);
-// }
-// 
-// void unbox_command(uint8_t *key) {
-//   size_t bufferUsed;
-//   void *buffer = read_file(stdin, 0, 1024, &bufferUsed);
-// 
-//   /* This is the block that we're going to read in.
-//    * The nonce is NONCEBYTES (24) bytes long, followed by an arbitrary length
-//    * ciphertext.  When we decrypt, we need BOXZEROBYTES (16) bytes before the
-//    * ciphertext to be zero'd.
-//    *
-//    * [ Nonce  ][ Ciphertext                 ]
-//    * +--------------------------------------+
-//    * |   |     |                            |
-//    * +--------------------------------------+
-//    *     [Zero]
-//    *
-//    *     [ Zero    ]
-//    *     +----------------------------------+
-//    *     |          |                       |
-//    *     +----------------------------------+
-//    *                [ Plaintext            ]
-//    */
-//   struct {
-//     union {
-//       uint8_t nonce[crypto_secretbox_NONCEBYTES];
-//       struct {
-//         uint8_t padding[crypto_secretbox_NONCEBYTES -
-//                         crypto_secretbox_BOXZEROBYTES],
-//                 zero[crypto_secretbox_BOXZEROBYTES];
-//       };
-//     };
-//     uint8_t ciphertext[bufferUsed - crypto_secretbox_NONCEBYTES];
-//   } *inblock = buffer;
-// 
-//   if (bufferUsed < crypto_secretbox_NONCEBYTES + BOX_EXTRA) {
-//     fprintf(stderr, "The message is not long enough to contain a nonce and code, and is thus invalid.\n");
-//     exit(1);
-//   }
-// 
-//   uint8_t nonce[crypto_secretbox_NONCEBYTES];
-//   struct {
-//     uint8_t zero[crypto_secretbox_ZEROBYTES],
-//             plaintext[bufferUsed - crypto_secretbox_NONCEBYTES - BOX_EXTRA];
-//   } *out = malloc(sizeof *out);
-// 
-//   memcpy(nonce, inblock->nonce, sizeof nonce);
-//   memset(inblock->zero, 0, sizeof inblock->zero);
-// 
-//   if (crypto_secretbox_open(out->zero, inblock->zero, sizeof *out, nonce, key) == -1) {
-//     fprintf(stderr, "Couldn't unbox.\n");
-//     exit(1);
-//   }
-// 
-//   if (fwrite(out->plaintext, sizeof out->plaintext, 1, stdout) == 0) {
-//     perror("fwrite");
-//     exit(1);
-//   }
-// 
-//   free(out);
-//   free(inblock);
-// }
-// 
-// void generate_key_command(void) {
-//   uint8_t key[crypto_secretbox_KEYBYTES];
-// 
-//   randombytes(key, sizeof key);
-// 
-//   int i;
-//   for (i = 0; i < sizeof key; ++i) {
-//     printf("%02x", key[i]);
-//   }
-// 
-//   printf("\n");
-// }
-// 
-// #if crypto_hash_sha256_BYTES != crypto_secretbox_KEYBYTES
-//   #error "The hash size is too small for the secretbox key"
-// #endif
-// 
-// void get_key(uint8_t *key, int argc, char **argv) {
-//   if (argc == 1) {
-//     char *password = getpass("Password: ");
-// 
-//     if (password == NULL) {
-//       perror("getpass");
-//       exit(1);
-//     }
-// 
-//     crypto_hash_sha256(key, (unsigned char*)password, strlen(password));
-//   } else if (argc == 2) {
-//     char *keyfileName = argv[1];
-//     FILE *keyfile = fopen(keyfileName, "rb");
-// 
-//     if (keyfile == NULL) {
-//       fprintf(stderr, "Opening keyfile '%s': ", keyfileName);
-//       perror("");
-//       exit(1);
-//     }
-// 
-//     size_t keyfileContentsLength;
-//     uint8_t *keyfileContents = read_file(keyfile, 0, 64, &keyfileContentsLength);
-//     
-//     if (fclose(keyfile) == EOF) {
-//       perror("fclose keyfile");
-//       exit(1);
-//     }
-// 
-//     crypto_hash_sha256(key, keyfileContents, keyfileContentsLength);
-//   } else {
-//     print_usage();
-//     exit(1);
-//   }
-// }
-// 

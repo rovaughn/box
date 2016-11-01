@@ -26,4 +26,6 @@ SYNOPSIS
     **nacl auth verify**
     **nacl onetimeauth**
     **nacl onetimeauth verify**
+    **nacl hash**
+    **nacl random**
     
