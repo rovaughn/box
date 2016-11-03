@@ -47,4 +47,7 @@ TODO
     - More detailed documentation beyond synopsis.
     - Update README to reflect docs.
     - Add license and don't forget dependencies (scrypt, nacl).
+    - Double check no branches/lookups depend on secrets and secret memory is
+      cleared.
+    - Raw binary mode.
 
