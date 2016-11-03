@@ -5,6 +5,9 @@ buildname=$(hostname | sed 's/\..*//' | tr -cd 'a-zA-Z0-9')
 echo 'Unpacking...'
 tar xaf $dir.tar.bz2
 
+echo 'Copying in okc...'
+cp okc $dir/okcompilers/c
+
 echo 'Building...'
 pushd $dir
 "./do" &
@@ -20,8 +23,8 @@ echo "Creating a symbolic link to the build dir"
 ln -s "$dir/build/$buildname" libnacl
 
 echo "Building static archive..."
-cp nacl/lib/amd64/libnacl.a .
-ar q libnacl.a nacl/lib/amd64/*.o
+cp libnacl/lib/amd64/libnacl.a .
+ar q libnacl.a libnacl/lib/amd64/*.o
 
 echo "Created a file called libnacl.a"
 echo "This library needs to be available somewhere on your path."
