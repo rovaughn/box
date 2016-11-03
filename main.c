@@ -11,6 +11,11 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <getopt.h>
+#include <stdbool.h>
+#include "readpass.h"
+#include "crypto_scrypt.h"
+
+#define crypto_scrypt_SALTBYTES 32
 
 #define range(i, a, b) for (i = a; i < b; i++)
 
@@ -67,7 +72,7 @@ const mode_t public_mode = S_IRUSR|S_IRGRP|S_IROTH;
 const mode_t secret_mode = S_IRUSR;
 
 void store_key(const char *path, mode_t mode, const char *label, size_t len, const uint8_t key[len]) {
-    int fd = open(path, O_WRONLY|O_CREAT, mode);
+    int fd = open(path, O_WRONLY|O_CREAT|O_TRUNC, mode);
     fatal(fd, "open");
 
     char buffer[strlen(label) + 1 + 2*len + 1];
@@ -217,7 +222,7 @@ cmd_value cmd_box(int argc, char *argv[argc]) {
     randombytes(c, crypto_box_NONCEBYTES);
     crypto_box(&c[crypto_box_NONCEBYTES], m, mlen, c, pk, sk);
 
-    int outfd = open(outfile, O_WRONLY|O_CREAT, public_mode);
+    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
     fatal(outfd, "open");
 
     // TODO: This unnecessarily includes the zero bytes.
@@ -279,7 +284,7 @@ cmd_value cmd_box_open(int argc, char *argv[argc]) {
         exit(1);
     }
 
-    int outfd = open(outfile, O_WRONLY|O_CREAT, secret_mode);
+    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
     fatal(outfd, "open");
 
     // TODO: This unnecessarily includes the zero bytes.
@@ -359,7 +364,7 @@ cmd_value cmd_box_afternm(int argc, char *argv[argc]) {
 
     crypto_box_afternm(&c[crypto_box_NONCEBYTES], m, mlen, c, k);
 
-    int outfd = open(outfile, O_WRONLY|O_CREAT, public_mode);
+    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
     fatal(outfd, "open");
 
     // TODO: This unnecessarily includes the zero bytes.
@@ -414,7 +419,7 @@ cmd_value cmd_box_open_afternm(int argc, char *argv[argc]) {
         exit(1);
     }
 
-    int outfd = open(outfile, O_WRONLY|O_CREAT, secret_mode);
+    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
     fatal(outfd, "open");
 
     // TODO: This unnecessarily includes the zero bytes.
@@ -457,7 +462,7 @@ cmd_value cmd_hash(int argc, char *argv[argc]) {
     to_hex(sizeof h, h, hhex);
     hhex[sizeof hhex - 1] = '\n';
 
-    int outfd = open(outfile, O_WRONLY|O_CREAT, secret_mode);
+    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
     fatal(outfd, "open");
 
     // TODO: This unnecessarily includes the zero bytes.
@@ -490,15 +495,58 @@ cmd_value cmd_secretbox_key(int argc, char *argv[argc]) {
     return cmd_success;
 }
 
+void save_uint64(uint8_t b[8], uint64_t n) {
+    int i;
+    range(i, 0, 8) {
+        b[i] = (n>>(8*i))&0xff;
+    }
+}
+
+void save_uint32(uint8_t b[4], uint64_t n) {
+    int i;
+    range(i, 0, 4) {
+        b[i] = (n>>(8*i))&0xff;
+    }
+}
+
+uint64_t read_uint64(uint8_t b[8]) {
+    uint64_t n = 0;
+    int i;
+    range(i, 0, 8) {
+        n |= b[i] << (8*i);
+    }
+    return n;
+}
+
+uint32_t read_uint32(uint8_t b[4]) {
+    uint64_t n = 0;
+    int i;
+    range(i, 0, 4) {
+        n |= b[i] << (8*i);
+    }
+    return n;
+}
+
+struct __attribute__((__packed__)) secretbox_scrypt {
+    uint8_t salt[crypto_scrypt_SALTBYTES];
+    uint8_t N[8];
+    uint8_t r[4];
+    uint8_t p[4];
+    uint8_t nonce[crypto_secretbox_NONCEBYTES];
+    uint8_t c[];
+};
+
 cmd_value cmd_secretbox(int argc, char *argv[argc]) {
     const char *keyfile = NULL;
     const char *infile = "/dev/stdin";
     const char *outfile = "/dev/stdout";
+    bool use_password = false;
 
     {
         char c;
-        while ((c = getopt(argc, argv, "k:i:o:")) != -1) {
+        while ((c = getopt(argc, argv, "pk:i:o:")) != -1) {
             switch (c) {
+            case 'p': use_password = true;
             case 'k': keyfile = optarg; break;
             case 'i': infile = optarg; break;
             case 'o': outfile = optarg; break;
@@ -507,47 +555,106 @@ cmd_value cmd_secretbox(int argc, char *argv[argc]) {
         }
     }
 
-    if (!keyfile || !infile || !outfile) { return cmd_usage_err; }
+    if ((use_password && keyfile) || (!use_password && !keyfile) || !infile || !outfile) {
+        return cmd_usage_err;
+    }
 
-    uint8_t k[crypto_secretbox_KEYBYTES];
+    if (use_password) {
+        char *password;
+        readpass(&password, "Password", "Confirm password", 1);
 
-    load_key(keyfile, "secretbox", sizeof k, k);
+        // there are better ways of deciding these, but these are what were used
+        // by the scrypt utility on my laptop.
+        // N must be power of 2 greater than 1
+        // r * p < 2**30
+        // buflen <= (2**32 - 1) * 32
+        uint64_t N = 524288;
+        uint32_t r = 8;
+        uint32_t p = 1;
 
-    int infd = open(infile, O_RDONLY);
-    fatal(infd, "open");
+        int infd = open(infile, O_RDONLY);
+        fatal(infd, "open");
 
-    size_t mlen;
-    void *m = load_file(infd, crypto_secretbox_ZEROBYTES, &mlen);
-    fatal(close(infd), "close");
+        size_t mlen;
+        void *m = load_file(infd, crypto_secretbox_ZEROBYTES, &mlen);
+        fatal(close(infd), "close");
 
-    // c[0..crypto_secretbox_NONCEBYTES] is the nonce,
-    // c[crypto_secretbox_NONCEBYTES..] is the message
-    uint8_t c[crypto_secretbox_NONCEBYTES + mlen];
+        size_t clen = sizeof(struct secretbox_scrypt) + mlen;
+        struct secretbox_scrypt *c = malloc(clen);
 
-    randombytes(c, crypto_secretbox_NONCEBYTES);
-    crypto_secretbox(&c[crypto_secretbox_NONCEBYTES], m, mlen, c, k);
+        randombytes(c->salt, sizeof c->salt);
+        save_uint64(c->N, N);
+        save_uint32(c->r, r);
+        save_uint32(c->p, p);
+        randombytes(c->nonce, sizeof c->nonce);
 
-    int outfd = open(outfile, O_WRONLY|O_CREAT, public_mode);
-    fatal(outfd, "open");
+        uint8_t k[crypto_secretbox_KEYBYTES];
 
-    // TODO: This unnecessarily includes the zero bytes.
-    fatal(write(outfd, c, sizeof c), "write");
-    fatal(close(outfd), "close");
+        if (crypto_scrypt(
+                (uint8_t*)password, strlen(password),
+                c->salt, sizeof c->salt,
+                N, r, p,
+                k, sizeof k
+           ) == -1) {
+            fprintf(stderr, "scrypt failed\n");
+            exit(1);
+        }
 
-    free(m);
+        crypto_secretbox(c->c, m, mlen, c->nonce, k);
 
-    return cmd_success;
+        int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
+        fatal(outfd, "open");
+
+        // TODO: This unnecessarily includes the zero bytes.
+        fatal(write(outfd, c, clen), "write");
+        fatal(close(outfd), "close");
+
+        free(m);
+
+        return cmd_success;
+    } else {
+        uint8_t k[crypto_secretbox_KEYBYTES];
+
+        load_key(keyfile, "secretbox", sizeof k, k);
+
+        int infd = open(infile, O_RDONLY);
+        fatal(infd, "open");
+
+        size_t mlen;
+        void *m = load_file(infd, crypto_secretbox_ZEROBYTES, &mlen);
+        fatal(close(infd), "close");
+
+        // c[0..crypto_secretbox_NONCEBYTES] is the nonce,
+        // c[crypto_secretbox_NONCEBYTES..] is the message
+        uint8_t c[crypto_secretbox_NONCEBYTES + mlen];
+
+        randombytes(c, crypto_secretbox_NONCEBYTES);
+        crypto_secretbox(&c[crypto_secretbox_NONCEBYTES], m, mlen, c, k);
+
+        int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
+        fatal(outfd, "open");
+
+        // TODO: This unnecessarily includes the zero bytes.
+        fatal(write(outfd, c, sizeof c), "write");
+        fatal(close(outfd), "close");
+
+        free(m);
+
+        return cmd_success;
+    }
 }
 
 cmd_value cmd_secretbox_open(int argc, char *argv[argc]) {
     const char *keyfile = NULL;
     const char *infile = "/dev/stdin";
     const char *outfile = "/dev/stdout";
+    bool use_password = false;
 
     {
         char c;
-        while ((c = getopt(argc, argv, "k:i:o:")) != -1) {
+        while ((c = getopt(argc, argv, "pk:i:o:")) != -1) {
             switch (c) {
+            case 'p': use_password = true;
             case 'k': keyfile = optarg; break;
             case 'i': infile = optarg; break;
             case 'o': outfile = optarg; break;
@@ -556,43 +663,90 @@ cmd_value cmd_secretbox_open(int argc, char *argv[argc]) {
         }
     }
 
-    if (!keyfile || !infile || !outfile) { return cmd_usage_err; }
-
-    uint8_t k[crypto_secretbox_KEYBYTES];
-
-    load_key(keyfile, "secretbox", sizeof k, k);
-
-    int infd = open(infile, O_RDONLY);
-    fatal(infd, "open");
-
-    size_t full_clen;
-    uint8_t *c = load_file(infd, 0, &full_clen);
-    fatal(close(infd), "close");
-
-    if (full_clen < crypto_secretbox_NONCEBYTES) {
-        fprintf(stderr, "Ciphertext is lacking a nonce.\n");
-        exit(1);
+    if ((use_password && keyfile) || (!use_password && !keyfile) || !infile || !outfile) {
+        return cmd_usage_err;
     }
 
-    size_t clen = full_clen - crypto_secretbox_NONCEBYTES;
-    uint8_t m[clen];
+    if (use_password) {
+        char *password;
+        readpass(&password, "Password", "Confirm password", 1);
 
-    // TODO: Ideally change this so it doesn't include the unnecessary zeroes
-    //       but until then it should at least make sure the zero bytes are
-    //       cleared.
-    if (crypto_secretbox_open(m, &c[crypto_secretbox_NONCEBYTES], clen, c, k) == -1) {
-        fprintf(stderr, "open failed!\n");
-        exit(1);
+        int infd = open(infile, O_RDONLY);
+        fatal(infd, "open");
+
+        size_t clen;
+        struct secretbox_scrypt *c = load_file(infd, 0, &clen);
+        fatal(close(infd), "close");
+
+        if (clen < sizeof(struct secretbox_scrypt)) {
+            fprintf(stderr, "Too small.");
+            exit(1);
+        }
+
+        size_t mlen = clen - sizeof(struct secretbox_scrypt);
+        uint8_t k[crypto_secretbox_KEYBYTES];
+
+        if (crypto_scrypt(
+                (uint8_t*)password, strlen(password),
+                c->salt, sizeof c->salt,
+                read_uint64(c->N), read_uint32(c->r), read_uint32(c->p),
+                k, sizeof k
+            ) == -1) {
+            fprintf(stderr, "scrypt failed\n");
+            exit(1);
+        }
+
+        uint8_t *m = malloc(mlen);
+
+        if (crypto_secretbox_open(m, c->c, mlen, c->nonce, k) == -1) {
+            fprintf(stderr, "open failed!\n");
+            exit(1);
+        }
+
+        int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
+        fatal(outfd, "open");
+
+        fatal(write(outfd, &m[crypto_secretbox_ZEROBYTES], mlen - crypto_secretbox_ZEROBYTES), "write");
+        fatal(close(outfd), "close");
+
+        return cmd_success;
+    } else {
+        uint8_t k[crypto_secretbox_KEYBYTES];
+
+        load_key(keyfile, "secretbox", sizeof k, k);
+
+        int infd = open(infile, O_RDONLY);
+        fatal(infd, "open");
+
+        size_t full_clen;
+        uint8_t *c = load_file(infd, 0, &full_clen);
+        fatal(close(infd), "close");
+
+        if (full_clen < crypto_secretbox_NONCEBYTES) {
+            fprintf(stderr, "Ciphertext is lacking a nonce.\n");
+            exit(1);
+        }
+
+        size_t clen = full_clen - crypto_secretbox_NONCEBYTES;
+        uint8_t m[clen];
+
+        // TODO: Ideally change this so it doesn't include the unnecessary zeroes
+        //       but until then it should at least make sure the zero bytes are
+        //       cleared.
+        if (crypto_secretbox_open(m, &c[crypto_secretbox_NONCEBYTES], clen, c, k) == -1) {
+            fprintf(stderr, "open failed!\n");
+            exit(1);
+        }
+
+        int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
+        fatal(outfd, "open");
+
+        // TODO: This unnecessarily includes the zero bytes.
+        fatal(write(outfd, &m[crypto_secretbox_ZEROBYTES], sizeof m - crypto_box_ZEROBYTES), "write");
+        fatal(close(outfd), "close");
+
+        return cmd_success;
     }
-
-    int outfd = open(outfile, O_WRONLY|O_CREAT, secret_mode);
-    fatal(outfd, "open");
-
-    // TODO: This unnecessarily includes the zero bytes.
-    fatal(write(outfd, &m[crypto_secretbox_ZEROBYTES], sizeof m - crypto_box_ZEROBYTES), "write");
-    fatal(close(outfd), "close");
-
-    return cmd_success;
 }
 
 typedef struct {
@@ -609,8 +763,8 @@ cmd_t cmds[] = {
     {"box-afternm", cmd_box_afternm, "-k KEYFILE [-i IN] [-o OUT]"},
     {"box-open-afternm", cmd_box_open_afternm, "-k KEYFILE [-i IN] [-o OUT]"},
     {"secretbox-key", cmd_secretbox_key, "-k KEYFILE"},
-    {"secretbox", cmd_secretbox, "-k KEYFILE [-i IN] [-o OUT]"},
-    {"secretbox-open", cmd_secretbox_open, "-k KEYFILE [-i IN] [-o OUT]"},
+    {"secretbox", cmd_secretbox, "{-p | -k KEYFILE} [-i IN] [-o OUT]"},
+    {"secretbox-open", cmd_secretbox_open, "{-p | -k KEYFILE} [-i IN] [-o OUT]"},
     {"hash", cmd_hash, "-i IN -o OUT"},
 };
 

@@ -1,4 +1,3 @@
-
 NAME
 ----
 
@@ -28,4 +27,24 @@ SYNOPSIS
     **nacl onetimeauth verify**
     **nacl hash**
     **nacl random**
-    
+
+TODO
+----
+
+    - Implement the other functions.
+    - Option to read password from file (which will also allow testing the
+      password functionality).
+    - Better way to build and use scrypt?  The current method is pretty shoddy.
+    - Also maybe a better way to select scrypt parameters.
+    - Down the line, perhaps benchmarking.
+    - Might actually be a good idea to get rid of some of the close's and free's
+      and make some stuff more global for simplicity, since it's just a short
+      lived utility that doesn't create memory/fd pressure.
+    - Use the packed struct approach in more places.
+    - Double check the bounds checking.  E.g. that the headers of files aren't
+      too small.
+    - Testing on mac.
+    - More detailed documentation beyond synopsis.
+    - Update README to reflect docs.
+    - Add license and don't forget dependencies (scrypt, nacl).
+
