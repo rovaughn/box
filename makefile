@@ -7,10 +7,11 @@ tested: nacl.debug nacl
 	./test
 
 nacl.debug: main.c
-	gcc ${CFLAGS} -g main.c libnacl.a -o nacl.debug
+	musl-gcc ${CFLAGS} -g main.c libnacl.a -o nacl.debug
 
 nacl: main.c
-	gcc ${CFLAGS} -O3 -s -flto main.c libnacl.a -o nacl
+	musl-gcc ${CFLAGS} -O3 -static -flto main.c libnacl.a -o nacl
+	strip -s nacl
 
 libnacl:
 	./build-nacl
