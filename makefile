@@ -4,6 +4,7 @@ CFLAGS := -Wall -Werror -Ilibnacl/include/amd64
 all: .tested nacl
 
 .tested: nacl.debug
+	shellcheck build-nacl test
 	./test
 	touch .tested
 

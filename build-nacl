@@ -1,6 +1,6 @@
 #!/bin/bash -e
 dir=nacl-20110221
-buildname=`hostname | sed 's/\..*//' | tr -cd '[a-z][A-Z][0-9]'`
+buildname=$(hostname | sed 's/\..*//' | tr -cd 'a-zA-Z0-9')
 
 echo 'Unpacking...'
 tar xaf $dir.tar.bz2
@@ -10,14 +10,14 @@ pushd $dir
 "./do" &
 dopid=$!
 sleep 3
-tail -f build/$buildname/log &
+tail -f "build/$buildname/log" &
 tailpid=$!
 wait $dopid
 kill $tailpid
 popd
 
 echo "Creating a symbolic link to the build dir"
-ln -s $dir/build/$buildname libnacl
+ln -s "$dir/build/$buildname" libnacl
 
 echo "Building static archive..."
 cp nacl/lib/amd64/libnacl.a .

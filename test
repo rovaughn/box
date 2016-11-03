@@ -14,11 +14,11 @@ failure() {
 nacl=$(readlink -f nacl.debug)
 
 nacl() {
-    valgrind -q "$nacl" $@
+    valgrind -q "$nacl" "$@"
 }
 
 usage_err() {
-    if $@ 2>/dev/null; then
+    if "$@" 2>/dev/null; then
         failure "Should not have succeeded"
     elif [ $? -ne 2 ]; then
         failure "Should have returned 2"
