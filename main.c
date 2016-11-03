@@ -172,8 +172,8 @@ cmd_value cmd_box_keypair(int argc, char *argv[argc]) {
 cmd_value cmd_box(int argc, char *argv[argc]) {
     const char *pkfile = NULL;
     const char *skfile = NULL;
-    const char *infile = NULL;
-    const char *outfile = NULL;
+    const char *infile = "/dev/stdin";
+    const char *outfile = "/dev/stdout";
 
     {
         char c;
@@ -225,8 +225,8 @@ cmd_value cmd_box(int argc, char *argv[argc]) {
 cmd_value cmd_box_open(int argc, char *argv[argc]) {
     const char *pkfile = NULL;
     const char *skfile = NULL;
-    const char *infile = NULL;
-    const char *outfile = NULL;
+    const char *infile = "/dev/stdin";
+    const char *outfile = "/dev/stdout";
 
     {
         char c;
@@ -318,8 +318,8 @@ cmd_value cmd_box_beforenm(int argc, char *argv[argc]) {
 
 cmd_value cmd_box_afternm(int argc, char *argv[argc]) {
     const char *kfile = NULL;
-    const char *infile = NULL;
-    const char *outfile = NULL;
+    const char *infile = "/dev/stdin";
+    const char *outfile = "/dev/stdout";
 
     {
         char c;
@@ -366,8 +366,8 @@ cmd_value cmd_box_afternm(int argc, char *argv[argc]) {
 
 cmd_value cmd_box_open_afternm(int argc, char *argv[argc]) {
     const char *kfile = NULL;
-    const char *infile = NULL;
-    const char *outfile = NULL;
+    const char *infile = "/dev/stdin";
+    const char *outfile = "/dev/stdout";
 
     {
         char c;
@@ -419,8 +419,8 @@ cmd_value cmd_box_open_afternm(int argc, char *argv[argc]) {
 
 cmd_value cmd_secretbox(int argc, char *argv[argc]) {
     const char *keyfile = NULL;
-    const char *infile = NULL;
-    const char *outfile = NULL;
+    const char *infile = "/dev/stdin";
+    const char *outfile = "/dev/stdout";
 
     {
         char c;
@@ -471,8 +471,8 @@ cmd_value cmd_secretbox(int argc, char *argv[argc]) {
 }
 
 cmd_value cmd_hash(int argc, char *argv[argc]) {
-    const char *infile = NULL;
-    const char *outfile = NULL;
+    const char *infile = "/dev/stdin";
+    const char *outfile = "/dev/stdout";
 
     {
         char c;
@@ -521,11 +521,11 @@ typedef struct {
 
 cmd_t cmds[] = {
     {"box-keypair", cmd_box_keypair, "-p PUBLIC -s SECRET"},
-    {"box", cmd_box, "-p PUBLIC -s SECRET -i IN -o OUT"},
-    {"box-open", cmd_box_open, "-p PUBLIC -s SECRET -i IN -o OUT"},
+    {"box", cmd_box, "-p PUBLIC -s SECRET [-i IN] [-o OUT]"},
+    {"box-open", cmd_box_open, "-p PUBLIC -s SECRET [-i IN] [-o OUT]"},
     {"box-beforenm", cmd_box_beforenm, "-p PUBLIC -s SECRET -k KEYFILE"},
-    {"box-afternm", cmd_box_afternm, "-k KEYFILE -i IN -o OUT"},
-    {"box-open-afternm", cmd_box_open_afternm, "-k KEYFILE -i IN -o OUT"},
+    {"box-afternm", cmd_box_afternm, "-k KEYFILE [-i IN] [-o OUT]"},
+    {"box-open-afternm", cmd_box_open_afternm, "-k KEYFILE [-i IN] [-o OUT]"},
     {"hash", cmd_hash, "-i IN -o OUT"},
 };
 
