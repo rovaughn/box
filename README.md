@@ -50,4 +50,5 @@ TODO
     - Double check no branches/lookups depend on secrets and secret memory is
       cleared.
     - Raw binary mode.
+    - Don't dump ciphertext to terminal unless explicit.
 
