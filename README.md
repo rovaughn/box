@@ -52,4 +52,6 @@ TODO
     - Raw binary mode.
     - Don't dump ciphertext to terminal unless explicit.  Maybe same for reading
       stdin from tty.
+    - Util for encrypting/compressing tarballs and stuff.  Probably best off as
+      a bash script.
 
