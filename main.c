@@ -62,8 +62,8 @@ void show(size_t len, uint8_t data[len]) {
     printf("\n");
 }
 
-const mode_t public_mode = S_IRUSR;
-const mode_t secret_mode = S_IRUSR|S_IRGRP|S_IROTH;
+const mode_t public_mode = S_IRUSR|S_IRGRP|S_IROTH;
+const mode_t secret_mode = S_IRUSR;
 
 void store_key(const char *path, mode_t mode, const char *label, size_t len, const uint8_t key[len]) {
     int fd = open(path, O_WRONLY|O_CREAT, mode);
