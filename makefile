@@ -9,7 +9,7 @@ all: .tested nacl
 	touch .tested
 
 nacl.debug: main.c
-	musl-gcc ${CFLAGS} -g main.c libnacl.a -o nacl.debug
+	gcc ${CFLAGS} -g main.c libnacl.a -o nacl.debug
 
 nacl: main.c
 	musl-gcc ${CFLAGS} -O3 -static -flto main.c libnacl.a -o nacl

@@ -20,8 +20,9 @@ nacl() {
 usage_err() {
     if "$@" 2>/dev/null; then
         failure "Should not have succeeded"
-    elif [ $? -ne 2 ]; then
-        failure "Should have returned 2"
+    else
+        code=$?
+        [ $? -ne 2 ] || failure "Should have returned 2, instead returned $code"
     fi
 }
 
@@ -70,6 +71,17 @@ nacl box-afternm -k k1 -i m1 -o c
 nacl box-open-afternm -k k2 -i c -o m2
 cmp --silent m1 m2 || failure "m1 and m2 differ"
 success "Text box beforenm"
+popd
+
+rm -rf testdir
+mkdir testdir
+pushd testdir
+nacl secretbox-key -k k
+echo hello >m1
+nacl secretbox -k k -i m1 -o c
+nacl secretbox-open -k k -i c -o m2
+cmp --silent m1 m2 || failure "m1 and m2 differ"
+success "secretbox"
 popd
 
 success "All tests successful"
