@@ -1,10 +1,11 @@
 
 CFLAGS := -Wall -Werror -Ilibnacl/include/amd64
 
-.PHONY: tested
+all: .tested nacl
 
-tested: nacl.debug nacl
+.tested: nacl.debug
 	./test
+	touch .tested
 
 nacl.debug: main.c
 	musl-gcc ${CFLAGS} -g main.c libnacl.a -o nacl.debug
