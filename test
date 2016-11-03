@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eu
+set -eux
 trap 'rm -rf testdir' EXIT
 
 success() {
@@ -33,7 +33,6 @@ usage_err nacl box-open
 usage_err nacl box-beforenm
 usage_err nacl box-afternm
 usage_err nacl box-open-afternm
-usage_err nacl hash
 
 rm -rf testdir
 mkdir testdir
