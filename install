@@ -1,6 +1,0 @@
-#!/bin/bash -ue
-./build
-rm -rf /usr/bin/{box,unbox,box-generate-key}
-cp a.out /usr/bin/box
-ln -s box /usr/bin/unbox
-ln -s box /usr/bin/box-generate-key
