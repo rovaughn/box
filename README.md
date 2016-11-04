@@ -7,30 +7,31 @@ NAME
 SYNOPSIS
 --------
 
-    **nacl box keypair**
-    **nacl box make**
-    **nacl box open**
-    **nacl box beforenm**
-    **nacl box afternm**
-    **nacl box open afternm**
-    **nacl sign keypair**
-    **nacl sign create**
-    **nacl sign open**
-    **nacl secretbox make [--password keyfile] [file]**
-    **nacl secretbox open [--password keyfile] [file]**
-    **nacl key** - generate a 256-bit hex key
+    **nacl box-keypair -p PUBLICKEY -s SECRETKEY**
+    **nacl box -p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]**
+    **nacl box-open -p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]**
+    **nacl box-beforenm -p PUBLICKEY -s SECRETKEY -k KEY**
+    **nacl box-afternm -k KEY [-i IN] [-o OUT]**
+    **nacl box-open-afternm -k KEYFILE [-i IN] [-o OUT]**
+    **nacl sign-keypair**
+    **nacl sign-create**
+    **nacl sign-open**
+    **nacl secretbox {-p | -k KEYFILE} [-i IN] [-o OUT]**
+    **nacl secretbox-open {-p | -k KEYFILE} [i IN] [-o OUT]**
+    **nacl secretbox-key -k KEYFILE**
     **nacl stream new**
     **nacl stream xor**
     **nacl auth**
     **nacl auth verify**
     **nacl onetimeauth**
     **nacl onetimeauth verify**
-    **nacl hash**
-    **nacl random**
+    **nacl hash [-i IN] [-o OUT]**
+    **nacl random -n BYTES [-o OUT]**
 
 TODO
 ----
 
+    - Use libsodium instead.  More up to date and provides scrypt.
     - Implement the other functions.
     - Option to read password from file (which will also allow testing the
       password functionality).

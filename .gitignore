@@ -6,3 +6,5 @@ nacl.debug
 testdir
 .tested
 scrypt
+libsodium*
+.libsodium

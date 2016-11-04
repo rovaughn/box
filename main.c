@@ -1,7 +1,4 @@
-#include <crypto_box.h>
-#include <crypto_secretbox.h>
-#include <crypto_hash.h>
-#include <randombytes.h>
+#include <sodium.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -13,7 +10,6 @@
 #include <getopt.h>
 #include <stdbool.h>
 #include "readpass.h"
-#include "crypto_scrypt.h"
 
 #define crypto_scrypt_SALTBYTES 32
 
@@ -220,7 +216,7 @@ cmd_value cmd_box(int argc, char *argv[argc]) {
     uint8_t c[crypto_box_NONCEBYTES + mlen];
 
     randombytes(c, crypto_box_NONCEBYTES);
-    crypto_box(&c[crypto_box_NONCEBYTES], m, mlen, c, pk, sk);
+    fatal(crypto_box(&c[crypto_box_NONCEBYTES], m, mlen, c, pk, sk), "crypto_box");
 
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
     fatal(outfd, "open");
@@ -321,8 +317,7 @@ cmd_value cmd_box_beforenm(int argc, char *argv[argc]) {
 
     uint8_t k[crypto_box_BEFORENMBYTES];
 
-    crypto_box_beforenm(k, pk, sk);
-
+    fatal(crypto_box_beforenm(k, pk, sk), "crypto_box_beforenm");
     store_key(kfile, secret_mode, "beforenm ", sizeof k, k);
 
     return cmd_success;
@@ -528,10 +523,10 @@ uint32_t read_uint32(uint8_t b[4]) {
 }
 
 struct __attribute__((__packed__)) secretbox_scrypt {
-    uint8_t salt[crypto_scrypt_SALTBYTES];
-    uint8_t N[8];
-    uint8_t r[4];
-    uint8_t p[4];
+    uint8_t salt[crypto_pwhash_SALTBYTES];
+    uint8_t opslimit[8];
+    uint8_t memlimit[8];
+    uint8_t alg[4];
     uint8_t nonce[crypto_secretbox_NONCEBYTES];
     uint8_t c[];
 };
@@ -568,9 +563,9 @@ cmd_value cmd_secretbox(int argc, char *argv[argc]) {
         // N must be power of 2 greater than 1
         // r * p < 2**30
         // buflen <= (2**32 - 1) * 32
-        uint64_t N = 524288;
-        uint32_t r = 8;
-        uint32_t p = 1;
+        uint64_t opslimit = crypto_pwhash_OPSLIMIT_MODERATE;
+        size_t memlimit = crypto_pwhash_MEMLIMIT_MODERATE;
+        int alg = crypto_pwhash_ALG_DEFAULT;
 
         int infd = open(infile, O_RDONLY);
         fatal(infd, "open");
@@ -583,18 +578,18 @@ cmd_value cmd_secretbox(int argc, char *argv[argc]) {
         struct secretbox_scrypt *c = malloc(clen);
 
         randombytes(c->salt, sizeof c->salt);
-        save_uint64(c->N, N);
-        save_uint32(c->r, r);
-        save_uint32(c->p, p);
+        save_uint64(c->opslimit, opslimit);
+        save_uint64(c->memlimit, memlimit);
+        save_uint32(c->alg, alg);
         randombytes(c->nonce, sizeof c->nonce);
 
         uint8_t k[crypto_secretbox_KEYBYTES];
 
-        if (crypto_scrypt(
-                (uint8_t*)password, strlen(password),
-                c->salt, sizeof c->salt,
-                N, r, p,
-                k, sizeof k
+        if (crypto_pwhash(
+                k, sizeof k,
+                password, strlen(password),
+                c->salt,
+                opslimit, memlimit, alg
            ) == -1) {
             fprintf(stderr, "scrypt failed\n");
             exit(1);
@@ -686,11 +681,12 @@ cmd_value cmd_secretbox_open(int argc, char *argv[argc]) {
         size_t mlen = clen - sizeof(struct secretbox_scrypt);
         uint8_t k[crypto_secretbox_KEYBYTES];
 
-        if (crypto_scrypt(
-                (uint8_t*)password, strlen(password),
-                c->salt, sizeof c->salt,
-                read_uint64(c->N), read_uint32(c->r), read_uint32(c->p),
-                k, sizeof k
+        if (crypto_pwhash(
+                k, sizeof k,
+                password, strlen(password),
+                c->salt,
+                read_uint64(c->opslimit), read_uint64(c->memlimit),
+                read_uint32(c->alg)
             ) == -1) {
             fprintf(stderr, "scrypt failed\n");
             exit(1);
@@ -788,10 +784,10 @@ typedef struct {
 } cmd_t;
 
 cmd_t cmds[] = {
-    {"box-keypair", cmd_box_keypair, "-p PUBLIC -s SECRET"},
-    {"box", cmd_box, "-p PUBLIC -s SECRET [-i IN] [-o OUT]"},
-    {"box-open", cmd_box_open, "-p PUBLIC -s SECRET [-i IN] [-o OUT]"},
-    {"box-beforenm", cmd_box_beforenm, "-p PUBLIC -s SECRET -k KEYFILE"},
+    {"box-keypair", cmd_box_keypair, "-p PUBLICKEY -s SECRETKEY"},
+    {"box", cmd_box, "-p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]"},
+    {"box-open", cmd_box_open, "-p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]"},
+    {"box-beforenm", cmd_box_beforenm, "-p PUBLICKEY -s SECRETKEY -k KEYFILE"},
     {"box-afternm", cmd_box_afternm, "-k KEYFILE [-i IN] [-o OUT]"},
     {"box-open-afternm", cmd_box_open_afternm, "-k KEYFILE [-i IN] [-o OUT]"},
     {"secretbox-key", cmd_secretbox_key, "-k KEYFILE"},

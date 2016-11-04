@@ -1,13 +1,22 @@
 
-CFLAGS := -Wall -Werror -Ilibnacl/include/amd64 \
-	      -Iscrypt/lib/crypto
-SRC := main.c readpass.c insecure_memzero.c warnp.c libnacl.a \
-	   scrypt/lib/crypto/crypto_scrypt.o scrypt/libcperciva/alg/sha256.o \
-	   scrypt/libcperciva/cpusupport/cpusupport_x86_sse2.o \
-	   scrypt/lib/crypto/crypto_scrypt_smix.o \
-	   scrypt/lib/crypto/libscrypt_sse2_a-crypto_scrypt_smix_sse2.o
+CFLAGS := -Wall -Werror -I/usr/local/include
+LDFLAGS := -lsodium -L/usr/local/lib
+SRC := main.c readpass.c insecure_memzero.c warnp.c
 
 all: .tested nacl
+
+libsodium-1.0.11.tar.gz:
+	wget 'https://download.libsodium.org/libsodium/releases/libsodium-1.0.11.tar.gz'
+
+libsodium-1.0.11: libsodium-1.0.11.tar.gz:
+	tar xaf libsodium-1.0.11.tar.gz
+
+.libsodium: libsodium-1.0.11
+	cd libsodium-1.0.11
+	./configure
+	make
+	sudo make install
+	touch .libsodium
 
 .tested: nacl.debug build-nacl test
 	shellcheck build-nacl test
@@ -15,10 +24,10 @@ all: .tested nacl
 	touch .tested
 
 nacl.debug: main.c
-	gcc ${CFLAGS} -g ${SRC} -o nacl.debug
+	gcc ${CFLAGS} -g ${SRC} ${LDFLAGS} -o nacl.debug
 
 nacl: main.c
-	musl-gcc ${CFLAGS} -O3 -static -flto ${SRC} -o nacl
+	gcc ${CFLAGS} -O3 -static -flto ${SRC} ${LDFLAGS} -o nacl
 	strip -s nacl
 
 libnacl:
