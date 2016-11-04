@@ -56,4 +56,8 @@ TODO
     - Util for encrypting/compressing tarballs and stuff.  Probably best off as
       a bash script.
     - Don't ask to confirm password when unboxing.
+    - Any good reasons to store length in boxes?
+    - Ideally don't include extra zeros in boxes.
+    - Make sure zeroes are cleared when reading in a file?
+    - Make the nonce an optional parameter?
 

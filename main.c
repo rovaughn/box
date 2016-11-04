@@ -14,6 +14,7 @@
 #define crypto_scrypt_SALTBYTES 32
 
 #define range(i, a, b) for (i = a; i < b; i++)
+#define PACKED __attribute__((__packed__))
 
 // TODO: Better version of this?
 static void *(*const volatile memset_s)(void*, int, size_t) = memset;
@@ -49,8 +50,48 @@ void from_hex(size_t len, const char src[2*len], uint8_t dst[len]) {
     }
 }
 
+void save_uint64(uint8_t b[8], uint64_t n) {
+    int i;
+    range(i, 0, 8) {
+        b[i] = (n>>(8*i))&0xff;
+    }
+}
+
+void save_uint32(uint8_t b[4], uint64_t n) {
+    int i;
+    range(i, 0, 4) {
+        b[i] = (n>>(8*i))&0xff;
+    }
+}
+
+uint64_t read_uint64(uint8_t b[8]) {
+    uint64_t n = 0;
+    int i;
+    range(i, 0, 8) {
+        n |= b[i] << (8*i);
+    }
+    return n;
+}
+
+uint32_t read_uint32(uint8_t b[4]) {
+    uint64_t n = 0;
+    int i;
+    range(i, 0, 4) {
+        n |= b[i] << (8*i);
+    }
+    return n;
+}
+
 void fatal(int err, const char *message) {
     if (err == -1) {
+        perror(message);
+        exit(1);
+    }
+}
+
+void fatalfile(int err, const char *file, const char *message) {
+    if (err == -1) {
+        fprintf(stderr, "%s: ", file);
         perror(message);
         exit(1);
     }
@@ -69,7 +110,7 @@ const mode_t secret_mode = S_IRUSR;
 
 void store_key(const char *path, mode_t mode, const char *label, size_t len, const uint8_t key[len]) {
     int fd = open(path, O_WRONLY|O_CREAT|O_TRUNC, mode);
-    fatal(fd, "open");
+    fatalfile(fd, path, "open");
 
     char buffer[strlen(label) + 1 + 2*len + 1];
 
@@ -78,8 +119,8 @@ void store_key(const char *path, mode_t mode, const char *label, size_t len, con
     to_hex(len, key, &buffer[strlen(label) + 1]);
     buffer[strlen(label) + 1 + 2*len] = '\n';
 
-    fatal(write(fd, buffer, sizeof buffer), "write");
-    fatal(close(fd), "close");
+    fatalfile(write(fd, buffer, sizeof buffer), path, "write");
+    fatalfile(close(fd), path, "close");
 }
 
 void *load_file(int fd, size_t zero_padding, size_t *size) {
@@ -114,11 +155,10 @@ void *load_file(int fd, size_t zero_padding, size_t *size) {
     return buffer;
 }
 
-// TODO: what about pbkdf stuff?
 // TODO: do we really want to use labels for everything?
 void load_key(const char *path, const char *expected_label, size_t len, uint8_t key[len]) {
     int fd = open(path, O_RDONLY);
-    fatal(fd, "open");
+    fatalfile(fd, path, "open");
 
     size_t size;
     uint8_t *data = load_file(fd, 0, &size);
@@ -141,13 +181,22 @@ void load_key(const char *path, const char *expected_label, size_t len, uint8_t 
     from_hex(len, (char*)&data[strlen(expected_label) + 1], key);
 }
 
-typedef enum {
-    cmd_success,
-    cmd_usage_err,
-    cmd_err,
-} cmd_value;
+typedef struct {
+    const char *name;
+    void (*func)(int argc, char *argv[argc]);
+    const char *help_args;
+} cmd_t;
 
-cmd_value cmd_box_keypair(int argc, char *argv[argc]) {
+char *usage_bin_name;
+cmd_t *usage_current_cmd;
+
+void usage() {
+    fprintf(stderr, "%s %s %s\n",
+            usage_bin_name, usage_current_cmd->name, usage_current_cmd->help_args);
+    exit(1);
+}
+
+void cmd_box_keypair(int argc, char *argv[argc]) {
     char *pkfile = NULL;
     char *skfile = NULL;
 
@@ -157,12 +206,12 @@ cmd_value cmd_box_keypair(int argc, char *argv[argc]) {
             switch (c) {
             case 'p': pkfile = optarg; break;
             case 's': skfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
-    if (!pkfile || !skfile) { return cmd_usage_err; }
+    if (!pkfile || !skfile) { usage(); }
 
     uint8_t pk[crypto_box_PUBLICKEYBYTES];
     uint8_t sk[crypto_box_SECRETKEYBYTES];
@@ -173,11 +222,14 @@ cmd_value cmd_box_keypair(int argc, char *argv[argc]) {
     store_key(skfile, secret_mode, "secret", sizeof sk, sk);
 
     memset_s(sk, 0, sizeof sk);
-
-    return cmd_success;
 }
 
-cmd_value cmd_box(int argc, char *argv[argc]) {
+typedef struct PACKED {
+    uint8_t nonce[crypto_box_NONCEBYTES];
+    uint8_t m[];
+} box_ciphertext;
+
+void cmd_box(int argc, char *argv[argc]) {
     const char *pkfile = NULL;
     const char *skfile = NULL;
     const char *infile = "/dev/stdin";
@@ -191,12 +243,12 @@ cmd_value cmd_box(int argc, char *argv[argc]) {
             case 's': skfile = optarg; break;
             case 'i': infile = optarg; break;
             case 'o': outfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
-    if (!pkfile || !skfile || !infile || !outfile) { return cmd_usage_err; }
+    if (!pkfile || !skfile || !infile || !outfile) { usage(); }
 
     uint8_t pk[crypto_box_PUBLICKEYBYTES];
     uint8_t sk[crypto_box_SECRETKEYBYTES];
@@ -205,32 +257,25 @@ cmd_value cmd_box(int argc, char *argv[argc]) {
     load_key(skfile, "secret", sizeof sk, sk);
 
     int infd = open(infile, O_RDONLY);
-    fatal(infd, "open");
+    fatalfile(infd, infile, "open");
 
     size_t mlen;
     void *m = load_file(infd, crypto_box_ZEROBYTES, &mlen);
-    fatal(close(infd), "close");
+    fatalfile(close(infd), infile, "close");
 
-    // c[0..crypto_box_NONCEBYTES] is the nonce, c[crypto_box_NONCEBYTES..] is
-    // the message
-    uint8_t c[crypto_box_NONCEBYTES + mlen];
-
-    randombytes(c, crypto_box_NONCEBYTES);
-    fatal(crypto_box(&c[crypto_box_NONCEBYTES], m, mlen, c, pk, sk), "crypto_box");
+    size_t clen = sizeof(box_ciphertext) + mlen;
+    box_ciphertext *c = malloc(clen);
+    randombytes(c->nonce, sizeof c->nonce);
+    fatal(crypto_box(c->m, m, mlen, c->nonce, pk, sk), "crypto_box");
 
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
-    fatal(outfd, "open");
+    fatalfile(outfd, outfile, "open");
 
-    // TODO: This unnecessarily includes the zero bytes.
-    fatal(write(outfd, c, sizeof c), "write");
-    fatal(close(outfd), "close");
-
-    free(m);
-
-    return cmd_success;
+    fatalfile(write(outfd, c, clen), outfile, "write");
+    fatalfile(close(outfd), outfile, "close");
 }
 
-cmd_value cmd_box_open(int argc, char *argv[argc]) {
+void cmd_box_open(int argc, char *argv[argc]) {
     const char *pkfile = NULL;
     const char *skfile = NULL;
     const char *infile = "/dev/stdin";
@@ -244,12 +289,12 @@ cmd_value cmd_box_open(int argc, char *argv[argc]) {
             case 's': skfile = optarg; break;
             case 'i': infile = optarg; break;
             case 'o': outfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
-    if (!pkfile || !skfile || !infile || !outfile) { return cmd_usage_err; }
+    if (!pkfile || !skfile || !infile || !outfile) { usage(); }
 
     uint8_t pk[crypto_box_PUBLICKEYBYTES];
     uint8_t sk[crypto_box_SECRETKEYBYTES];
@@ -258,39 +303,32 @@ cmd_value cmd_box_open(int argc, char *argv[argc]) {
     load_key(skfile, "secret", sizeof sk, sk);
 
     int infd = open(infile, O_RDONLY);
-    fatal(infd, "open");
+    fatalfile(infd, infile, "open");
 
-    size_t full_clen;
-    uint8_t *c = load_file(infd, 0, &full_clen);
-    fatal(close(infd), "close");
+    size_t clen;
+    box_ciphertext *c = load_file(infd, 0, &clen);
+    fatalfile(close(infd), infile, "close");
 
-    if (full_clen < crypto_box_NONCEBYTES) {
-        fprintf(stderr, "Ciphertext is lacking a nonce.\n");
+    if (clen < sizeof *c) {
+        fprintf(stderr, "Box is too small.\n");
         exit(1);
     }
 
-    size_t clen = full_clen - crypto_box_NONCEBYTES;
-    uint8_t m[clen];
+    size_t mlen = clen - sizeof *c;
+    uint8_t *m = malloc(mlen);
 
-    // TODO: Ideally change this so it doesn't include the unnecessary zeroes
-    //       but until then it should at least make sure the zero bytes are
-    //       cleared.
-    if (crypto_box_open(m, &c[crypto_box_NONCEBYTES], clen, c, pk, sk) == -1) {
+    if (crypto_box_open(m, c->m, mlen, c->nonce, pk, sk) == -1) {
         fprintf(stderr, "open failed!\n");
         exit(1);
     }
 
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
-    fatal(outfd, "open");
-
-    // TODO: This unnecessarily includes the zero bytes.
-    fatal(write(outfd, &m[crypto_box_ZEROBYTES], sizeof m - crypto_box_ZEROBYTES), "write");
-    fatal(close(outfd), "close");
-
-    return cmd_success;
+    fatalfile(outfd, outfile, "open");
+    fatalfile(write(outfd, &m[crypto_box_ZEROBYTES], mlen - crypto_box_ZEROBYTES), outfile, "write");
+    fatalfile(close(outfd), outfile, "close");
 }
 
-cmd_value cmd_box_beforenm(int argc, char *argv[argc]) {
+void cmd_box_beforenm(int argc, char *argv[argc]) {
     const char *pkfile = NULL;
     const char *skfile = NULL;
     const char *kfile = NULL;
@@ -302,12 +340,12 @@ cmd_value cmd_box_beforenm(int argc, char *argv[argc]) {
             case 'p': pkfile = optarg; break;
             case 's': skfile = optarg; break;
             case 'k': kfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
-    if (!pkfile || !skfile || !kfile) { return cmd_usage_err; }
+    if (!pkfile || !skfile || !kfile) { usage(); }
 
     uint8_t pk[crypto_box_PUBLICKEYBYTES];
     uint8_t sk[crypto_box_SECRETKEYBYTES];
@@ -319,11 +357,9 @@ cmd_value cmd_box_beforenm(int argc, char *argv[argc]) {
 
     fatal(crypto_box_beforenm(k, pk, sk), "crypto_box_beforenm");
     store_key(kfile, secret_mode, "beforenm ", sizeof k, k);
-
-    return cmd_success;
 }
 
-cmd_value cmd_box_afternm(int argc, char *argv[argc]) {
+void cmd_box_afternm(int argc, char *argv[argc]) {
     const char *kfile = NULL;
     const char *infile = "/dev/stdin";
     const char *outfile = "/dev/stdout";
@@ -335,23 +371,23 @@ cmd_value cmd_box_afternm(int argc, char *argv[argc]) {
             case 'k': kfile = optarg; break;
             case 'i': infile = optarg; break;
             case 'o': outfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
-    if (!kfile || !infile || !outfile) { return cmd_usage_err; }
+    if (!kfile || !infile || !outfile) { usage(); }
 
     uint8_t k[crypto_box_BEFORENMBYTES];
 
     load_key(kfile, "beforenm ", sizeof k, k);
 
     int infd = open(infile, O_RDONLY);
-    fatal(infd, "open");
+    fatalfile(infd, infile, "open");
 
     size_t mlen;
     void *m = load_file(infd, crypto_box_ZEROBYTES, &mlen);
-    fatal(close(infd), "close");
+    fatalfile(close(infd), infile, "close");
 
     uint8_t c[crypto_box_NONCEBYTES + mlen];
 
@@ -360,18 +396,13 @@ cmd_value cmd_box_afternm(int argc, char *argv[argc]) {
     crypto_box_afternm(&c[crypto_box_NONCEBYTES], m, mlen, c, k);
 
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
-    fatal(outfd, "open");
+    fatalfile(outfd, outfile, "open");
 
-    // TODO: This unnecessarily includes the zero bytes.
-    fatal(write(outfd, c, sizeof c), "write");
-    fatal(close(outfd), "close");
-
-    free(m);
-
-    return cmd_success;
+    fatalfile(write(outfd, c, sizeof c), outfile, "write");
+    fatalfile(close(outfd), outfile, "close");
 }
 
-cmd_value cmd_box_open_afternm(int argc, char *argv[argc]) {
+void cmd_box_open_afternm(int argc, char *argv[argc]) {
     const char *kfile = NULL;
     const char *infile = "/dev/stdin";
     const char *outfile = "/dev/stdout";
@@ -383,48 +414,42 @@ cmd_value cmd_box_open_afternm(int argc, char *argv[argc]) {
             case 'k': kfile = optarg; break;
             case 'i': infile = optarg; break;
             case 'o': outfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
-    if (!kfile || !infile || !outfile) { return cmd_usage_err; }
+    if (!kfile || !infile || !outfile) { usage(); }
 
     uint8_t k[crypto_box_BEFORENMBYTES];
 
     load_key(kfile, "beforenm ", sizeof k, k);
 
     int infd = open(infile, O_RDONLY);
-    fatal(infd, "open");
+    fatalfile(infd, infile, "open");
 
     size_t full_clen;
     uint8_t *c = load_file(infd, 0, &full_clen);
-    fatal(close(infd), "close");
+    fatalfile(close(infd), infile, "close");
 
     // TODO: check this doesn't underflow
     size_t clen = full_clen - crypto_box_NONCEBYTES;
 
     uint8_t m[clen];
 
-    // TODO: Ideally change this so it doesn't include the unnecessary zeroes
-    //       but until then it should at least make sure the zero bytes are
-    //       cleared.
     if (crypto_box_open_afternm(m, &c[crypto_box_NONCEBYTES], clen, c, k) == -1) {
         fprintf(stderr, "open failed!\n");
         exit(1);
     }
 
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
-    fatal(outfd, "open");
+    fatalfile(outfd, outfile, "open");
 
-    // TODO: This unnecessarily includes the zero bytes.
-    fatal(write(outfd, &m[crypto_box_ZEROBYTES], sizeof m - crypto_box_ZEROBYTES), "write");
-    fatal(close(outfd), "close");
-
-    return cmd_success;
+    fatalfile(write(outfd, &m[crypto_box_ZEROBYTES], sizeof m - crypto_box_ZEROBYTES), outfile, "write");
+    fatalfile(close(outfd), outfile, "close");
 }
 
-cmd_value cmd_hash(int argc, char *argv[argc]) {
+void cmd_hash(int argc, char *argv[argc]) {
     const char *infile = "/dev/stdin";
     const char *outfile = "/dev/stdout";
 
@@ -434,19 +459,19 @@ cmd_value cmd_hash(int argc, char *argv[argc]) {
             switch (c) {
             case 'i': infile = optarg; break;
             case 'o': outfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
-    if (!infile || !outfile) { return cmd_usage_err; }
+    if (!infile || !outfile) { usage(); }
 
     int infd = open(infile, O_RDONLY);
-    fatal(infd, "open");
+    fatalfile(infd, infile, "open");
 
     size_t mlen;
     uint8_t *m = load_file(infd, 0, &mlen);
-    fatal(close(infd), "close");
+    fatalfile(close(infd), infile, "close");
 
     uint8_t h[crypto_hash_BYTES];
 
@@ -458,16 +483,13 @@ cmd_value cmd_hash(int argc, char *argv[argc]) {
     hhex[sizeof hhex - 1] = '\n';
 
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
-    fatal(outfd, "open");
+    fatalfile(outfd, outfile, "open");
 
-    // TODO: This unnecessarily includes the zero bytes.
-    fatal(write(outfd, hhex, sizeof hhex), "write");
-    fatal(close(outfd), "close");
-
-    return cmd_success;
+    fatalfile(write(outfd, hhex, sizeof hhex), outfile, "write");
+    fatalfile(close(outfd), outfile, "close");
 }
 
-cmd_value cmd_secretbox_key(int argc, char *argv[argc]) {
+void cmd_secretbox_key(int argc, char *argv[argc]) {
     const char *keyfile = NULL;
 
     {
@@ -475,63 +497,34 @@ cmd_value cmd_secretbox_key(int argc, char *argv[argc]) {
         while ((c = getopt(argc, argv, "k:")) != -1) {
             switch (c) {
             case 'k': keyfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
-    if (!keyfile) { return cmd_usage_err; }
+    if (!keyfile) { usage(); }
 
     uint8_t k[crypto_secretbox_KEYBYTES];
 
     randombytes(k, sizeof k);
     store_key(keyfile, secret_mode, "secretbox", sizeof k, k);
-
-    return cmd_success;
 }
 
-void save_uint64(uint8_t b[8], uint64_t n) {
-    int i;
-    range(i, 0, 8) {
-        b[i] = (n>>(8*i))&0xff;
-    }
-}
-
-void save_uint32(uint8_t b[4], uint64_t n) {
-    int i;
-    range(i, 0, 4) {
-        b[i] = (n>>(8*i))&0xff;
-    }
-}
-
-uint64_t read_uint64(uint8_t b[8]) {
-    uint64_t n = 0;
-    int i;
-    range(i, 0, 8) {
-        n |= b[i] << (8*i);
-    }
-    return n;
-}
-
-uint32_t read_uint32(uint8_t b[4]) {
-    uint64_t n = 0;
-    int i;
-    range(i, 0, 4) {
-        n |= b[i] << (8*i);
-    }
-    return n;
-}
-
-struct __attribute__((__packed__)) secretbox_scrypt {
+typedef struct PACKED {
     uint8_t salt[crypto_pwhash_SALTBYTES];
     uint8_t opslimit[8];
     uint8_t memlimit[8];
     uint8_t alg[4];
     uint8_t nonce[crypto_secretbox_NONCEBYTES];
-    uint8_t c[];
-};
+    uint8_t m[];
+} secretbox_password_ciphertext;
 
-cmd_value cmd_secretbox(int argc, char *argv[argc]) {
+typedef struct PACKED {
+    uint8_t nonce[crypto_secretbox_NONCEBYTES];
+    uint8_t m[];
+} secretbox_ciphertext;
+
+void cmd_secretbox(int argc, char *argv[argc]) {
     const char *keyfile = NULL;
     const char *infile = "/dev/stdin";
     const char *outfile = "/dev/stdout";
@@ -545,13 +538,13 @@ cmd_value cmd_secretbox(int argc, char *argv[argc]) {
             case 'k': keyfile = optarg; break;
             case 'i': infile = optarg; break;
             case 'o': outfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
     if ((use_password && keyfile) || (!use_password && !keyfile) || !infile || !outfile) {
-        return cmd_usage_err;
+        usage();
     }
 
     if (use_password) {
@@ -568,14 +561,14 @@ cmd_value cmd_secretbox(int argc, char *argv[argc]) {
         int alg = crypto_pwhash_ALG_DEFAULT;
 
         int infd = open(infile, O_RDONLY);
-        fatal(infd, "open");
+        fatalfile(infd, infile, "open");
 
         size_t mlen;
         void *m = load_file(infd, crypto_secretbox_ZEROBYTES, &mlen);
-        fatal(close(infd), "close");
+        fatalfile(close(infd), infile, "close");
 
-        size_t clen = sizeof(struct secretbox_scrypt) + mlen;
-        struct secretbox_scrypt *c = malloc(clen);
+        size_t clen = sizeof(secretbox_password_ciphertext) + mlen;
+        secretbox_password_ciphertext *c = malloc(clen);
 
         randombytes(c->salt, sizeof c->salt);
         save_uint64(c->opslimit, opslimit);
@@ -585,61 +578,46 @@ cmd_value cmd_secretbox(int argc, char *argv[argc]) {
 
         uint8_t k[crypto_secretbox_KEYBYTES];
 
-        if (crypto_pwhash(
+        fatal(crypto_pwhash(
                 k, sizeof k,
                 password, strlen(password),
                 c->salt,
                 opslimit, memlimit, alg
-           ) == -1) {
-            fprintf(stderr, "scrypt failed\n");
-            exit(1);
-        }
+       ), "crypto_pwhash");
 
-        crypto_secretbox(c->c, m, mlen, c->nonce, k);
+        crypto_secretbox(c->m, m, mlen, c->nonce, k);
 
         int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
-        fatal(outfd, "open");
+        fatalfile(outfd, outfile, "open");
 
-        // TODO: This unnecessarily includes the zero bytes.
-        fatal(write(outfd, c, clen), "write");
-        fatal(close(outfd), "close");
-
-        free(m);
-
-        return cmd_success;
+        fatalfile(write(outfd, c, clen), outfile, "write");
+        fatalfile(close(outfd), outfile, "close");
     } else {
         uint8_t k[crypto_secretbox_KEYBYTES];
 
         load_key(keyfile, "secretbox", sizeof k, k);
 
         int infd = open(infile, O_RDONLY);
-        fatal(infd, "open");
+        fatalfile(infd, infile, "open");
 
         size_t mlen;
         void *m = load_file(infd, crypto_secretbox_ZEROBYTES, &mlen);
-        fatal(close(infd), "close");
+        fatalfile(close(infd), infile, "close");
 
-        // c[0..crypto_secretbox_NONCEBYTES] is the nonce,
-        // c[crypto_secretbox_NONCEBYTES..] is the message
-        uint8_t c[crypto_secretbox_NONCEBYTES + mlen];
-
-        randombytes(c, crypto_secretbox_NONCEBYTES);
-        crypto_secretbox(&c[crypto_secretbox_NONCEBYTES], m, mlen, c, k);
+        size_t clen = sizeof(secretbox_ciphertext) + mlen;
+        secretbox_ciphertext *c = malloc(clen);
+        randombytes(c->nonce, sizeof c->nonce);
+        crypto_secretbox(c->m, m, mlen, c->nonce, k);
 
         int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
-        fatal(outfd, "open");
+        fatalfile(outfd, outfile, "open");
 
-        // TODO: This unnecessarily includes the zero bytes.
-        fatal(write(outfd, c, sizeof c), "write");
-        fatal(close(outfd), "close");
-
-        free(m);
-
-        return cmd_success;
+        fatalfile(write(outfd, c, clen), outfile, "write");
+        fatalfile(close(outfd), outfile, "close");
     }
 }
 
-cmd_value cmd_secretbox_open(int argc, char *argv[argc]) {
+void cmd_secretbox_open(int argc, char *argv[argc]) {
     const char *keyfile = NULL;
     const char *infile = "/dev/stdin";
     const char *outfile = "/dev/stdout";
@@ -653,13 +631,13 @@ cmd_value cmd_secretbox_open(int argc, char *argv[argc]) {
             case 'k': keyfile = optarg; break;
             case 'i': infile = optarg; break;
             case 'o': outfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
     if ((use_password && keyfile) || (!use_password && !keyfile) || !infile || !outfile) {
-        return cmd_usage_err;
+        usage();
     }
 
     if (use_password) {
@@ -667,18 +645,18 @@ cmd_value cmd_secretbox_open(int argc, char *argv[argc]) {
         readpass(&password, "Password", "Confirm password", 1);
 
         int infd = open(infile, O_RDONLY);
-        fatal(infd, "open");
+        fatalfile(infd, infile, "open");
 
         size_t clen;
-        struct secretbox_scrypt *c = load_file(infd, 0, &clen);
-        fatal(close(infd), "close");
+        secretbox_password_ciphertext *c = load_file(infd, 0, &clen);
+        fatalfile(close(infd), infile, "close");
 
-        if (clen < sizeof(struct secretbox_scrypt)) {
+        if (clen < sizeof *c) {
             fprintf(stderr, "Too small.");
             exit(1);
         }
 
-        size_t mlen = clen - sizeof(struct secretbox_scrypt);
+        size_t mlen = clen - sizeof(secretbox_password_ciphertext);
         uint8_t k[crypto_secretbox_KEYBYTES];
 
         if (crypto_pwhash(
@@ -694,58 +672,50 @@ cmd_value cmd_secretbox_open(int argc, char *argv[argc]) {
 
         uint8_t *m = malloc(mlen);
 
-        if (crypto_secretbox_open(m, c->c, mlen, c->nonce, k) == -1) {
+        if (crypto_secretbox_open(m, c->m, mlen, c->nonce, k) == -1) {
             fprintf(stderr, "open failed!\n");
             exit(1);
         }
 
         int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
-        fatal(outfd, "open");
+        fatalfile(outfd, outfile, "open");
 
-        fatal(write(outfd, &m[crypto_secretbox_ZEROBYTES], mlen - crypto_secretbox_ZEROBYTES), "write");
-        fatal(close(outfd), "close");
-
-        return cmd_success;
+        fatalfile(write(outfd, &m[crypto_secretbox_ZEROBYTES], mlen - crypto_secretbox_ZEROBYTES), outfile, "write");
+        fatalfile(close(outfd), outfile, "close");
     } else {
         uint8_t k[crypto_secretbox_KEYBYTES];
 
         load_key(keyfile, "secretbox", sizeof k, k);
 
         int infd = open(infile, O_RDONLY);
-        fatal(infd, "open");
+        fatalfile(infd, infile, "open");
 
-        size_t full_clen;
-        uint8_t *c = load_file(infd, 0, &full_clen);
-        fatal(close(infd), "close");
+        size_t clen;
+        secretbox_ciphertext *c = load_file(infd, 0, &clen);
+        fatalfile(close(infd), infile, "close");
 
-        if (full_clen < crypto_secretbox_NONCEBYTES) {
+        if (clen < sizeof *c) {
             fprintf(stderr, "Ciphertext is lacking a nonce.\n");
             exit(1);
         }
 
-        size_t clen = full_clen - crypto_secretbox_NONCEBYTES;
-        uint8_t m[clen];
+        size_t mlen = clen - sizeof *c;
+        uint8_t *m = malloc(mlen);
 
-        // TODO: Ideally change this so it doesn't include the unnecessary zeroes
-        //       but until then it should at least make sure the zero bytes are
-        //       cleared.
-        if (crypto_secretbox_open(m, &c[crypto_secretbox_NONCEBYTES], clen, c, k) == -1) {
+        if (crypto_secretbox_open(m, c->m, mlen, c->nonce, k) == -1) {
             fprintf(stderr, "open failed!\n");
             exit(1);
         }
 
         int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
-        fatal(outfd, "open");
+        fatalfile(outfd, outfile, "open");
 
-        // TODO: This unnecessarily includes the zero bytes.
-        fatal(write(outfd, &m[crypto_secretbox_ZEROBYTES], sizeof m - crypto_box_ZEROBYTES), "write");
-        fatal(close(outfd), "close");
-
-        return cmd_success;
+        fatalfile(write(outfd, &m[crypto_secretbox_ZEROBYTES], mlen - crypto_box_ZEROBYTES), outfile, "write");
+        fatalfile(close(outfd), outfile, "close");
     }
 }
 
-cmd_value cmd_random(int argc, char *argv[argc]) {
+void cmd_random(int argc, char *argv[argc]) {
     const char *outfile = "/dev/stdout";
     size_t n = 0;
 
@@ -755,12 +725,12 @@ cmd_value cmd_random(int argc, char *argv[argc]) {
             switch (c) {
             case 'n': n = atoi(optarg); break;
             case 'o': outfile = optarg; break;
-            default: return cmd_usage_err;
+            default: usage();
             }
         }
     }
 
-    if (!n || !outfile) { return cmd_usage_err; }
+    if (!n || !outfile) { usage(); }
 
     uint8_t data[n];
     char hexdata[2*n+1];
@@ -770,18 +740,10 @@ cmd_value cmd_random(int argc, char *argv[argc]) {
     hexdata[2*n] = '\n';
 
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
-    fatal(outfd, "open");
-    fatal(write(outfd, hexdata, sizeof hexdata), "write");
-    fatal(close(outfd), "close");
-
-    return cmd_success;
+    fatalfile(outfd, outfile, "open");
+    fatalfile(write(outfd, hexdata, sizeof hexdata), outfile, "write");
+    fatalfile(close(outfd), outfile, "close");
 }
-
-typedef struct {
-    const char *name;
-    cmd_value (*func)(int argc, char *argv[argc]);
-    const char *help_args;
-} cmd_t;
 
 cmd_t cmds[] = {
     {"box-keypair", cmd_box_keypair, "-p PUBLICKEY -s SECRETKEY"},
@@ -804,21 +766,15 @@ int main(int argc, char *argv[argc]) {
         int i;
         range(i, 0, ncmds) {
             if (strcmp(argv[1], cmds[i].name) == 0) {
-                switch (cmds[i].func(argc - 1, &argv[1])) {
-                case cmd_success:
-                    return 0;
-                case cmd_usage_err:
-                    fprintf(stderr, "%s %s %s\n", argv[0], cmds[i].name, cmds[i].help_args);
-                    return 2;
-                default:
-                    return 1;
-                }
+                usage_bin_name = argv[0];
+                usage_current_cmd = &cmds[i];
+                cmds[i].func(argc - 1, &argv[1]);
+                return 0;
             }
         }
     }
 
-    fprintf(stderr, "Invalid command.  Please choose one of the following:\n");
-
+    fprintf(stderr, "Commands available:\n");
     int i;
     range(i, 0, ncmds) {
         fprintf(stderr, "%s %s %s\n", argv[0], cmds[i].name, cmds[i].help_args);
