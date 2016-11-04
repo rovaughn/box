@@ -749,6 +749,38 @@ cmd_value cmd_secretbox_open(int argc, char *argv[argc]) {
     }
 }
 
+cmd_value cmd_random(int argc, char *argv[argc]) {
+    const char *outfile = "/dev/stdout";
+    size_t n = 0;
+
+    {
+        char c;
+        while ((c = getopt(argc, argv, "n:o:")) != -1) {
+            switch (c) {
+            case 'n': n = atoi(optarg); break;
+            case 'o': outfile = optarg; break;
+            default: return cmd_usage_err;
+            }
+        }
+    }
+
+    if (!n || !outfile) { return cmd_usage_err; }
+
+    uint8_t data[n];
+    char hexdata[2*n+1];
+
+    randombytes(data, sizeof data);
+    to_hex(n, data, hexdata);
+    hexdata[2*n] = '\n';
+
+    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
+    fatal(outfd, "open");
+    fatal(write(outfd, hexdata, sizeof hexdata), "write");
+    fatal(close(outfd), "close");
+
+    return cmd_success;
+}
+
 typedef struct {
     const char *name;
     cmd_value (*func)(int argc, char *argv[argc]);
@@ -765,7 +797,8 @@ cmd_t cmds[] = {
     {"secretbox-key", cmd_secretbox_key, "-k KEYFILE"},
     {"secretbox", cmd_secretbox, "{-p | -k KEYFILE} [-i IN] [-o OUT]"},
     {"secretbox-open", cmd_secretbox_open, "{-p | -k KEYFILE} [-i IN] [-o OUT]"},
-    {"hash", cmd_hash, "-i IN -o OUT"},
+    {"hash", cmd_hash, "[-i IN] [-o OUT]"},
+    {"random", cmd_random, "-n BYTES [-o OUT]"},
 };
 
 int main(int argc, char *argv[argc]) {
