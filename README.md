@@ -55,4 +55,5 @@ TODO
       stdin from tty.
     - Util for encrypting/compressing tarballs and stuff.  Probably best off as
       a bash script.
+    - Don't ask to confirm password when unboxing.
 
