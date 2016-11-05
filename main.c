@@ -16,9 +16,6 @@
 #define range(i, a, b) for (i = a; i < b; i++)
 #define PACKED __attribute__((__packed__))
 
-// TODO: Better version of this?
-static void *(*const volatile memset_s)(void*, int, size_t) = memset;
-
 char hex_digits[16] = "0123456789abcdef";
 
 void to_hex(size_t len, const uint8_t src[len], char dst[2*len]) {
@@ -221,7 +218,7 @@ void cmd_box_keypair(int argc, char *argv[argc]) {
     store_key(pkfile, public_mode, "public", sizeof pk, pk);
     store_key(skfile, secret_mode, "secret", sizeof sk, sk);
 
-    memset_s(sk, 0, sizeof sk);
+    sodium_memzero(sk, sizeof sk);
 }
 
 typedef struct PACKED {
