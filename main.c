@@ -55,8 +55,9 @@ void *load_file(int fd, size_t zero_padding, size_t *size) {
     memset(buffer, 0, zero_padding);
 
     for (;;) {
-        if (capacity - filled < min_read) {
-            buffer = realloc(buffer, 2*capacity);
+        while (capacity - filled < min_read) {
+            capacity *= 2;
+            buffer = realloc(buffer, capacity);
         }
 
         ssize_t nr = read(fd, &buffer[filled], capacity - filled);

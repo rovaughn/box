@@ -21,7 +21,10 @@ TODO
     - Reduce variables' scope to the minimum.
     - File specific syntax might make it easier to box (e.g. automatically
       creating file blah -> blah.box and vice versa and option to delete
-      originally like compression utils do).
+      originally like compression utils do).  Also could be safer cause it could
+      be atomic.  If an unboxing fails it won't write the file at all.  Plus
+      knowing the size of the file ahead of time could be safer and avoids
+      keeping sensitive things in memory.
     - Double check the bounds checking.  E.g. that the headers of files aren't
       too small.
     - Build on osx.
