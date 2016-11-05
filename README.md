@@ -31,33 +31,39 @@ SYNOPSIS
 TODO
 ----
 
-    - Use libsodium instead.  More up to date and provides scrypt.
     - Implement the other functions.
     - Option to read password from file (which will also allow testing the
       password functionality).
-    - Better way to build and use scrypt?  The current method is pretty shoddy.
-    - Also maybe a better way to select scrypt parameters.
-    - Down the line, perhaps benchmarking.
+    - Choose pwhash parameters?
+    - Down the line, perhaps benchmarking.  At least do this before any other
+      optimization like mmap.
     - Might actually be a good idea to get rid of some of the close's and free's
       and make some stuff more global for simplicity, since it's just a short
       lived utility that doesn't create memory/fd pressure.
-    - Use the packed struct approach in more places.
+    - Reduce variables' scope to the minimum.
     - Double check the bounds checking.  E.g. that the headers of files aren't
       too small.
-    - Testing on mac.
+    - Testing on osx.
     - More detailed documentation beyond synopsis.
     - Update README to reflect docs.
-    - Add license and don't forget dependencies (scrypt, nacl).
+    - Add license and don't forget dependencies (libsodium).
     - Double check no branches/lookups depend on secrets and secret memory is
       cleared.
-    - Raw binary mode.
+    - Raw binary option.
     - Don't dump ciphertext to terminal unless explicit.  Maybe same for reading
-      stdin from tty.
+      stdin from tty (i.e. don't read something that's probably binary like
+      ciphertext from stdin).
     - Util for encrypting/compressing tarballs and stuff.  Probably best off as
       a bash script.
     - Don't ask to confirm password when unboxing.
-    - Any good reasons to store length in boxes?
+    - Any good reasons to store length in boxes?  Would make it somewhat more
+      efficient at the cost of slightly bigger box size.  Would also make it
+      possible to pack multiple boxes in a row which could more or less give us
+      packet-oriented streaming for free.
     - Ideally don't include extra zeros in boxes.
     - Make sure zeroes are cleared when reading in a file?
-    - Make the nonce an optional parameter?
+    - Make the nonce an optional parameter?  Could be good for network type
+      stuff.
+    - Do we really need the beforenm/afternm stuff?  Maybe we only use that in
+      a streaming interface.
 

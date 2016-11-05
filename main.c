@@ -389,16 +389,15 @@ void cmd_box_afternm(int argc, char *argv[argc]) {
     void *m = load_file(infd, crypto_box_ZEROBYTES, &mlen);
     fatalfile(close(infd), infile, "close");
 
-    uint8_t c[crypto_box_NONCEBYTES + mlen];
-
-    randombytes(c, crypto_box_NONCEBYTES);
-
-    crypto_box_afternm(&c[crypto_box_NONCEBYTES], m, mlen, c, k);
+    size_t clen = sizeof(box_ciphertext) + mlen;
+    box_ciphertext *c = malloc(clen);
+    randombytes(c->nonce, sizeof c->nonce);
+    fatal(crypto_box_afternm(c->m, m, mlen, c->nonce, k), "crypto_box_afternm");
 
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
     fatalfile(outfd, outfile, "open");
 
-    fatalfile(write(outfd, c, sizeof c), outfile, "write");
+    fatalfile(write(outfd, c, clen), outfile, "write");
     fatalfile(close(outfd), outfile, "close");
 }
 
@@ -428,16 +427,19 @@ void cmd_box_open_afternm(int argc, char *argv[argc]) {
     int infd = open(infile, O_RDONLY);
     fatalfile(infd, infile, "open");
 
-    size_t full_clen;
-    uint8_t *c = load_file(infd, 0, &full_clen);
+    size_t clen;
+    box_ciphertext *c = load_file(infd, 0, &clen);
     fatalfile(close(infd), infile, "close");
 
-    // TODO: check this doesn't underflow
-    size_t clen = full_clen - crypto_box_NONCEBYTES;
+    if (clen < sizeof *c) {
+        fprintf(stderr, "Box is too small.\n");
+        exit(1);
+    }
 
-    uint8_t m[clen];
+    size_t mlen = clen - sizeof *c;
+    uint8_t *m = malloc(mlen);
 
-    if (crypto_box_open_afternm(m, &c[crypto_box_NONCEBYTES], clen, c, k) == -1) {
+    if (crypto_box_open_afternm(m, c->m, mlen, c->nonce, k) == -1) {
         fprintf(stderr, "open failed!\n");
         exit(1);
     }
@@ -445,7 +447,7 @@ void cmd_box_open_afternm(int argc, char *argv[argc]) {
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
     fatalfile(outfd, outfile, "open");
 
-    fatalfile(write(outfd, &m[crypto_box_ZEROBYTES], sizeof m - crypto_box_ZEROBYTES), outfile, "write");
+    fatalfile(write(outfd, &m[crypto_box_ZEROBYTES], mlen - crypto_box_ZEROBYTES), outfile, "write");
     fatalfile(close(outfd), outfile, "close");
 }
 
