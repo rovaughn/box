@@ -239,6 +239,11 @@ void cmd_box(int argc, char *argv[argc]) {
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
     fatalfile(outfd, outfile, "open");
 
+    if (isatty(outfd)) {
+        fprintf(stderr, "Refusing to write box to terminal.\n");
+        exit(1);
+    }
+
     fatalfile(write(outfd, c, clen), outfile, "write");
     fatalfile(close(outfd), outfile, "close");
 }
@@ -272,6 +277,11 @@ void cmd_box_open(int argc, char *argv[argc]) {
 
     int infd = open(infile, O_RDONLY);
     fatalfile(infd, infile, "open");
+
+    if (isatty(infd)) {
+        fprintf(stderr, "Refusing to read box from terminal.\n");
+        exit(1);
+    }
 
     size_t clen;
     box_ciphertext *c = load_file(infd, 0, &clen);
@@ -400,6 +410,11 @@ void cmd_secretbox(int argc, char *argv[argc]) {
         int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
         fatalfile(outfd, outfile, "open");
 
+        if (isatty(outfd)) {
+            fprintf(stderr, "Refusing to write box to terminal.\n");
+            exit(1);
+        }
+
         fatalfile(write(outfd, c, clen), outfile, "write");
         fatalfile(close(outfd), outfile, "close");
     } else {
@@ -423,6 +438,11 @@ void cmd_secretbox(int argc, char *argv[argc]) {
 
         int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
         fatalfile(outfd, outfile, "open");
+
+        if (isatty(outfd)) {
+            fprintf(stderr, "Refusing to write box to terminal.\n");
+            exit(1);
+        }
 
         fatalfile(write(outfd, c, clen), outfile, "write");
         fatalfile(close(outfd), outfile, "close");
@@ -458,6 +478,11 @@ void cmd_secretbox_open(int argc, char *argv[argc]) {
 
         int infd = open(infile, O_RDONLY);
         fatalfile(infd, infile, "open");
+
+        if (isatty(infd)) {
+            fprintf(stderr, "Refusing to read box from terminal.\n");
+            exit(1);
+        }
 
         size_t clen;
         secretbox_password_ciphertext *c = load_file(infd, 0, &clen);
@@ -501,6 +526,11 @@ void cmd_secretbox_open(int argc, char *argv[argc]) {
 
         int infd = open(infile, O_RDONLY);
         fatalfile(infd, infile, "open");
+
+        if (isatty(infd)) {
+            fprintf(stderr, "Refusing to read box from terminal.\n");
+            exit(1);
+        }
 
         size_t clen;
         secretbox_ciphertext *c = load_file(infd, 0, &clen);

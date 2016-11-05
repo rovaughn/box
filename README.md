@@ -17,12 +17,13 @@ SYNOPSIS
 TODO
 ----
 
+    - Change cli now that the focus is more on boxing.
     - Should this utility focus on a command line utility for nacl or just
       boxing?
     - Implement the other functions.
     - Option to read password from file (which will also allow testing the
       password functionality).
-    - Choose pwhash parameters?
+    - Choose pwhash parameters?  Maybe always use sensitive.
     - Down the line, perhaps benchmarking.  At least do this before any other
       optimization like mmap.
     - Might actually be a good idea to get rid of some of the close's and free's
@@ -36,8 +37,8 @@ TODO
     - Update README to reflect docs.
     - Add license and don't forget dependencies (libsodium).
     - Double check no branches/lookups depend on secrets and secret memory is
-      cleared.
-    - Raw binary option.
+      cleared.  Consider using the advanced sensitive data malloc's.
+    - Raw binary option?
     - Don't dump ciphertext to terminal unless explicit.  Maybe same for reading
       stdin from tty (i.e. don't read something that's probably binary like
       ciphertext from stdin).
