@@ -45,17 +45,17 @@ void fatal(int err, const char *message) {
     }
 }
 
-void *load_file(int fd, size_t zero_padding, size_t *size) {
-    static const size_t initial_capacity = 1<<14;
-    static const size_t min_read = 1<<14;
+#define load_file_initial_capacity (1<<14)
+#define load_file_min_read (1<<14)
 
+void *load_file(int fd, size_t zero_padding, size_t *size) {
     size_t filled = zero_padding;
-    size_t capacity = zero_padding + initial_capacity;
+    size_t capacity = zero_padding + load_file_initial_capacity;
     uint8_t *buffer = malloc(capacity);
     memset(buffer, 0, zero_padding);
 
     for (;;) {
-        while (capacity - filled < min_read) {
+        while (capacity - filled < load_file_min_read) {
             capacity *= 2;
             buffer = realloc(buffer, capacity);
         }
@@ -76,9 +76,6 @@ void *load_file(int fd, size_t zero_padding, size_t *size) {
 
     return buffer;
 }
-
-const mode_t public_mode = S_IRUSR|S_IRGRP|S_IROTH;
-const mode_t secret_mode = S_IRUSR;
 
 typedef struct PACKED {
     uint8_t salt[crypto_pwhash_SALTBYTES];
@@ -103,6 +100,10 @@ __attribute__((noreturn)) void cmd_seal() {
     size_t memlimit = crypto_pwhash_MEMLIMIT_MODERATE;
     int alg = crypto_pwhash_ALG_DEFAULT;
 
+    if (isatty(STDIN_FILENO)) {
+        fprintf(stderr, "Type your message below then press Ctrl+D on its own line to end it:\n");
+    }
+
     size_t mlen;
     void *m = load_file(STDIN_FILENO, crypto_secretbox_ZEROBYTES, &mlen);
 
@@ -118,6 +119,7 @@ __attribute__((noreturn)) void cmd_seal() {
 
     uint8_t k[crypto_secretbox_KEYBYTES];
 
+    fprintf(stderr, "Hashing password, this takes a few seconds...\n");
     fatal(crypto_pwhash(
             k, sizeof k,
             password, strlen(password),
@@ -125,8 +127,10 @@ __attribute__((noreturn)) void cmd_seal() {
             opslimit, memlimit, alg
    ), "crypto_pwhash");
 
+    fprintf(stderr, "Encrypting message...\n");
     crypto_secretbox(c->m, m, mlen, c->nonce, k);
 
+    fprintf(stderr, "Writing out...\n");
     fatal(write(STDOUT_FILENO, c, clen), "write");
 
     exit(0);
@@ -152,6 +156,7 @@ __attribute__((noreturn)) void cmd_open() {
     size_t mlen = clen - sizeof(box_header);
     uint8_t k[crypto_secretbox_KEYBYTES];
 
+    fprintf(stderr, "Hashing password, this takes a few seconds...\n");
     if (crypto_pwhash(
             k, sizeof k,
             password, strlen(password),
@@ -165,11 +170,13 @@ __attribute__((noreturn)) void cmd_open() {
 
     uint8_t *m = malloc(mlen);
 
+    fprintf(stderr, "Decrypting box...\n");
     if (crypto_secretbox_open(m, c->m, mlen, c->nonce, k) == -1) {
         fprintf(stderr, "open failed!\n");
         exit(1);
     }
 
+    fprintf(stderr, "Writing out...\n");
     fatal(write(
         STDOUT_FILENO,
         &m[crypto_secretbox_ZEROBYTES],

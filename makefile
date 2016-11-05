@@ -21,4 +21,5 @@ libsodium-1.0.11: libsodium-1.0.11.tar.gz
 box: main.c .libsodium
 	${CC} ${CFLAGS} -O3 -static -flto ${SRC} ${LDFLAGS} -o box
 	strip -s box
+	ls -lah box
 
