@@ -53,4 +53,5 @@ TODO
     - Make sure zeroes are cleared when reading in a file?
     - Make the nonce an optional parameter?  Could be good for network type
       stuff.
+    - Maybe use AEAD for box metadata.
 
