@@ -4,7 +4,7 @@ LDFLAGS := -lsodium -L/usr/local/lib
 SRC := main.c readpass.c insecure_memzero.c warnp.c
 export CC := musl-gcc
 
-all: nacl
+all: box
 
 libsodium-1.0.11.tar.gz:
 	wget 'https://download.libsodium.org/libsodium/releases/libsodium-1.0.11.tar.gz'
@@ -18,7 +18,7 @@ libsodium-1.0.11: libsodium-1.0.11.tar.gz
 	cd libsodium-1.0.11 && sudo make install
 	touch .libsodium
 
-nacl: main.c .libsodium
-	${CC} ${CFLAGS} -O3 -static -flto ${SRC} ${LDFLAGS} -o nacl
-	strip -s nacl
+box: main.c .libsodium
+	${CC} ${CFLAGS} -O3 -static -flto ${SRC} ${LDFLAGS} -o box
+	strip -s box
 
