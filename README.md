@@ -36,3 +36,10 @@ TODO
       stuff.  Maybe it'd be automatic for streaming stuff.
     - Maybe use AEAD for box metadata.
 
+TODOS:
+- Better CLI (help menu, -h, maybe make it a bit smarter when analyzing the
+  binary name).  Or just one utility with multiple options.  Since
+  box-generate-key is already separate anyway.
+- That pbkdf thing.
+- Maybe mmap will be more performant?  Also look into the mmap hints where you
+  can hint how the file will be accessed (in this case, sequentially).
