@@ -16,37 +16,6 @@
 #define range(i, a, b) for (i = a; i < b; i++)
 #define PACKED __attribute__((__packed__))
 
-char hex_digits[16] = "0123456789abcdef";
-
-void to_hex(size_t len, const uint8_t src[len], char dst[2*len]) {
-    int i;
-    range(i, 0, len) {
-        uint8_t b = src[i];
-        dst[2*i+0] = hex_digits[b >> 4];
-        dst[2*i+1] = hex_digits[b&0x0f];
-    }
-}
-
-uint8_t from_hex_digit(char c) {
-    if ('0' <= c && c <= '9') {
-        return c - '0';
-    } else if ('a' <= c && c <= 'f') {
-        return c - 'a' + 10;
-    } else if ('A' <= c && c <= 'F') {
-        return c - 'A' + 10;
-    } else {
-        fprintf(stderr, "Invalid hex digit: %c\n", c);
-        exit(1);
-    }
-}
-
-void from_hex(size_t len, const char src[2*len], uint8_t dst[len]) {
-    int i;
-    range(i, 0, len) {
-        dst[i] = (from_hex_digit(src[2*i+0]) << 4) | from_hex_digit(src[2*i+1]);
-    }
-}
-
 void save_uint64(uint8_t b[8], uint64_t n) {
     int i;
     range(i, 0, 8) { b[i] = (n>>(8*i))&0xff; }
@@ -109,7 +78,7 @@ void store_key(const char *path, mode_t mode, const char *label, size_t len, con
 
     memcpy(buffer, label, strlen(label));
     buffer[strlen(label)] = ' ';
-    to_hex(len, key, &buffer[strlen(label) + 1]);
+    sodium_bin2hex(&buffer[strlen(label) + 1], 2*len+1, key, len);
     buffer[strlen(label) + 1 + 2*len] = '\n';
 
     fatalfile(write(fd, buffer, sizeof buffer), path, "write");
@@ -171,7 +140,11 @@ void load_key(const char *path, const char *expected_label, size_t len, uint8_t 
         exit(1);
     }
 
-    from_hex(len, (char*)&data[strlen(expected_label) + 1], key);
+    sodium_hex2bin(
+        key, len,
+        (char*)&data[strlen(expected_label) + 1], 2*len + 1,
+        NULL, NULL, NULL
+    );
 }
 
 typedef struct {
@@ -552,36 +525,6 @@ void cmd_secretbox_open(int argc, char *argv[argc]) {
         fatalfile(write(outfd, &m[crypto_secretbox_ZEROBYTES], mlen - crypto_box_ZEROBYTES), outfile, "write");
         fatalfile(close(outfd), outfile, "close");
     }
-}
-
-void cmd_random(int argc, char *argv[argc]) {
-    const char *outfile = "/dev/stdout";
-    size_t n = 0;
-
-    {
-        char c;
-        while ((c = getopt(argc, argv, "n:o:")) != -1) {
-            switch (c) {
-            case 'n': n = atoi(optarg); break;
-            case 'o': outfile = optarg; break;
-            default: usage();
-            }
-        }
-    }
-
-    if (!n || !outfile) { usage(); }
-
-    uint8_t data[n];
-    char hexdata[2*n+1];
-
-    randombytes_buf(data, sizeof data);
-    to_hex(n, data, hexdata);
-    hexdata[2*n] = '\n';
-
-    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
-    fatalfile(outfd, outfile, "open");
-    fatalfile(write(outfd, hexdata, sizeof hexdata), outfile, "write");
-    fatalfile(close(outfd), outfile, "close");
 }
 
 cmd_t cmds[] = {
