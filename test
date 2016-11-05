@@ -13,8 +13,10 @@ failure() {
 
 nacl=$(readlink -f nacl.debug)
 
+#export LD_LIBRARY_PATH=/usr/local/lib
+
 nacl() {
-    valgrind -q "$nacl" "$@"
+    valgrind --track-origins=yes -q "$nacl" "$@"
 }
 
 usage_err() {
@@ -31,19 +33,6 @@ usage_err nacl asdf
 usage_err nacl box-keypair
 usage_err nacl box
 usage_err nacl box-open
-usage_err nacl box-beforenm
-usage_err nacl box-afternm
-usage_err nacl box-open-afternm
-
-rm -rf testdir
-mkdir testdir
-pushd testdir
-echo hello >m
-echo e7c22b994c59d9cf2b48e549b1e24666636045930d3da7c1acb299d1c3b7f931f94aae41edda2c2b207a36e10f8bcb8d45223e54878f5b316e7ce3b6bc019629 >expected
-nacl hash -i m -o h
-cmp --silent h expected || failure "h and expected differ"
-success "Tested hash"
-popd
 
 rm -rf testdir
 mkdir testdir
@@ -56,21 +45,6 @@ nacl box -p p2 -s s1 -i m1 -o c
 nacl box-open -p p1 -s s2 -i c -o m2
 cmp --silent m1 m2 || failure "m1 and m2 differ"
 success "Tested box"
-popd
-
-rm -rf testdir
-mkdir testdir
-pushd testdir
-echo "Testing box beforenm/afternm..."
-nacl box-keypair -p p1 -s s1
-nacl box-keypair -p p2 -s s2
-nacl box-beforenm -p p2 -s s1 -k k1
-nacl box-beforenm -p p1 -s s2 -k k2
-echo 'attack at dusk' >m1
-nacl box-afternm -k k1 -i m1 -o c
-nacl box-open-afternm -k k2 -i c -o m2
-cmp --silent m1 m2 || failure "m1 and m2 differ"
-success "Text box beforenm"
 popd
 
 rm -rf testdir

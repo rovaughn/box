@@ -10,27 +10,15 @@ SYNOPSIS
     **nacl box-keypair -p PUBLICKEY -s SECRETKEY**
     **nacl box -p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]**
     **nacl box-open -p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]**
-    **nacl box-beforenm -p PUBLICKEY -s SECRETKEY -k KEY**
-    **nacl box-afternm -k KEY [-i IN] [-o OUT]**
-    **nacl box-open-afternm -k KEYFILE [-i IN] [-o OUT]**
-    **nacl sign-keypair**
-    **nacl sign-create**
-    **nacl sign-open**
+    **nacl secretbox-key -k KEYFILE**
     **nacl secretbox {-p | -k KEYFILE} [-i IN] [-o OUT]**
     **nacl secretbox-open {-p | -k KEYFILE} [i IN] [-o OUT]**
-    **nacl secretbox-key -k KEYFILE**
-    **nacl stream new**
-    **nacl stream xor**
-    **nacl auth**
-    **nacl auth verify**
-    **nacl onetimeauth**
-    **nacl onetimeauth verify**
-    **nacl hash [-i IN] [-o OUT]**
-    **nacl random -n BYTES [-o OUT]**
 
 TODO
 ----
 
+    - Should this utility focus on a command line utility for nacl or just
+      boxing?
     - Implement the other functions.
     - Option to read password from file (which will also allow testing the
       password functionality).
@@ -64,6 +52,4 @@ TODO
     - Make sure zeroes are cleared when reading in a file?
     - Make the nonce an optional parameter?  Could be good for network type
       stuff.
-    - Do we really need the beforenm/afternm stuff?  Maybe we only use that in
-      a streaming interface.
 

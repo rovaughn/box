@@ -24,7 +24,7 @@ libsodium-1.0.11: libsodium-1.0.11.tar.gz
 	touch .tested
 
 nacl.debug: main.c .libsodium
-	${CC} ${CFLAGS} -g -static ${SRC} ${LDFLAGS} -o nacl.debug
+	${CC} ${CFLAGS} -static -g ${SRC} ${LDFLAGS} -o nacl.debug
 
 nacl: main.c .libsodium
 	${CC} ${CFLAGS} -O3 -static -flto ${SRC} ${LDFLAGS} -o nacl

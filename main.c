@@ -49,16 +49,12 @@ void from_hex(size_t len, const char src[2*len], uint8_t dst[len]) {
 
 void save_uint64(uint8_t b[8], uint64_t n) {
     int i;
-    range(i, 0, 8) {
-        b[i] = (n>>(8*i))&0xff;
-    }
+    range(i, 0, 8) { b[i] = (n>>(8*i))&0xff; }
 }
 
 void save_uint32(uint8_t b[4], uint64_t n) {
     int i;
-    range(i, 0, 4) {
-        b[i] = (n>>(8*i))&0xff;
-    }
+    range(i, 0, 4) { b[i] = (n>>(8*i))&0xff; }
 }
 
 uint64_t read_uint64(uint8_t b[8]) {
@@ -223,6 +219,7 @@ void cmd_box_keypair(int argc, char *argv[argc]) {
 
 typedef struct PACKED {
     uint8_t nonce[crypto_box_NONCEBYTES];
+    uint8_t len[8];
     uint8_t m[];
 } box_ciphertext;
 
@@ -262,7 +259,8 @@ void cmd_box(int argc, char *argv[argc]) {
 
     size_t clen = sizeof(box_ciphertext) + mlen;
     box_ciphertext *c = malloc(clen);
-    randombytes(c->nonce, sizeof c->nonce);
+    randombytes_buf(c->nonce, sizeof c->nonce);
+    save_uint64(c->len, mlen);
     fatal(crypto_box(c->m, m, mlen, c->nonce, pk, sk), "crypto_box");
 
     int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
@@ -325,169 +323,6 @@ void cmd_box_open(int argc, char *argv[argc]) {
     fatalfile(close(outfd), outfile, "close");
 }
 
-void cmd_box_beforenm(int argc, char *argv[argc]) {
-    const char *pkfile = NULL;
-    const char *skfile = NULL;
-    const char *kfile = NULL;
-
-    {
-        char c;
-        while ((c = getopt(argc, argv, "p:s:k:")) != -1) {
-            switch (c) {
-            case 'p': pkfile = optarg; break;
-            case 's': skfile = optarg; break;
-            case 'k': kfile = optarg; break;
-            default: usage();
-            }
-        }
-    }
-
-    if (!pkfile || !skfile || !kfile) { usage(); }
-
-    uint8_t pk[crypto_box_PUBLICKEYBYTES];
-    uint8_t sk[crypto_box_SECRETKEYBYTES];
-
-    load_key(pkfile, "public", sizeof pk, pk);
-    load_key(skfile, "secret", sizeof sk, sk);
-
-    uint8_t k[crypto_box_BEFORENMBYTES];
-
-    fatal(crypto_box_beforenm(k, pk, sk), "crypto_box_beforenm");
-    store_key(kfile, secret_mode, "beforenm ", sizeof k, k);
-}
-
-void cmd_box_afternm(int argc, char *argv[argc]) {
-    const char *kfile = NULL;
-    const char *infile = "/dev/stdin";
-    const char *outfile = "/dev/stdout";
-
-    {
-        char c;
-        while ((c = getopt(argc, argv, "k:i:o:")) != -1) {
-            switch (c) {
-            case 'k': kfile = optarg; break;
-            case 'i': infile = optarg; break;
-            case 'o': outfile = optarg; break;
-            default: usage();
-            }
-        }
-    }
-
-    if (!kfile || !infile || !outfile) { usage(); }
-
-    uint8_t k[crypto_box_BEFORENMBYTES];
-
-    load_key(kfile, "beforenm ", sizeof k, k);
-
-    int infd = open(infile, O_RDONLY);
-    fatalfile(infd, infile, "open");
-
-    size_t mlen;
-    void *m = load_file(infd, crypto_box_ZEROBYTES, &mlen);
-    fatalfile(close(infd), infile, "close");
-
-    size_t clen = sizeof(box_ciphertext) + mlen;
-    box_ciphertext *c = malloc(clen);
-    randombytes(c->nonce, sizeof c->nonce);
-    fatal(crypto_box_afternm(c->m, m, mlen, c->nonce, k), "crypto_box_afternm");
-
-    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
-    fatalfile(outfd, outfile, "open");
-
-    fatalfile(write(outfd, c, clen), outfile, "write");
-    fatalfile(close(outfd), outfile, "close");
-}
-
-void cmd_box_open_afternm(int argc, char *argv[argc]) {
-    const char *kfile = NULL;
-    const char *infile = "/dev/stdin";
-    const char *outfile = "/dev/stdout";
-
-    {
-        char c;
-        while ((c = getopt(argc, argv, "k:i:o:")) != -1) {
-            switch (c) {
-            case 'k': kfile = optarg; break;
-            case 'i': infile = optarg; break;
-            case 'o': outfile = optarg; break;
-            default: usage();
-            }
-        }
-    }
-
-    if (!kfile || !infile || !outfile) { usage(); }
-
-    uint8_t k[crypto_box_BEFORENMBYTES];
-
-    load_key(kfile, "beforenm ", sizeof k, k);
-
-    int infd = open(infile, O_RDONLY);
-    fatalfile(infd, infile, "open");
-
-    size_t clen;
-    box_ciphertext *c = load_file(infd, 0, &clen);
-    fatalfile(close(infd), infile, "close");
-
-    if (clen < sizeof *c) {
-        fprintf(stderr, "Box is too small.\n");
-        exit(1);
-    }
-
-    size_t mlen = clen - sizeof *c;
-    uint8_t *m = malloc(mlen);
-
-    if (crypto_box_open_afternm(m, c->m, mlen, c->nonce, k) == -1) {
-        fprintf(stderr, "open failed!\n");
-        exit(1);
-    }
-
-    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
-    fatalfile(outfd, outfile, "open");
-
-    fatalfile(write(outfd, &m[crypto_box_ZEROBYTES], mlen - crypto_box_ZEROBYTES), outfile, "write");
-    fatalfile(close(outfd), outfile, "close");
-}
-
-void cmd_hash(int argc, char *argv[argc]) {
-    const char *infile = "/dev/stdin";
-    const char *outfile = "/dev/stdout";
-
-    {
-        char c;
-        while ((c = getopt(argc, argv, "i:o:")) != -1) {
-            switch (c) {
-            case 'i': infile = optarg; break;
-            case 'o': outfile = optarg; break;
-            default: usage();
-            }
-        }
-    }
-
-    if (!infile || !outfile) { usage(); }
-
-    int infd = open(infile, O_RDONLY);
-    fatalfile(infd, infile, "open");
-
-    size_t mlen;
-    uint8_t *m = load_file(infd, 0, &mlen);
-    fatalfile(close(infd), infile, "close");
-
-    uint8_t h[crypto_hash_BYTES];
-
-    crypto_hash(h, m, mlen);
-
-    char hhex[2*crypto_hash_BYTES+1];
-
-    to_hex(sizeof h, h, hhex);
-    hhex[sizeof hhex - 1] = '\n';
-
-    int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, secret_mode);
-    fatalfile(outfd, outfile, "open");
-
-    fatalfile(write(outfd, hhex, sizeof hhex), outfile, "write");
-    fatalfile(close(outfd), outfile, "close");
-}
-
 void cmd_secretbox_key(int argc, char *argv[argc]) {
     const char *keyfile = NULL;
 
@@ -505,7 +340,7 @@ void cmd_secretbox_key(int argc, char *argv[argc]) {
 
     uint8_t k[crypto_secretbox_KEYBYTES];
 
-    randombytes(k, sizeof k);
+    randombytes_buf(k, sizeof k);
     store_key(keyfile, secret_mode, "secretbox", sizeof k, k);
 }
 
@@ -515,11 +350,13 @@ typedef struct PACKED {
     uint8_t memlimit[8];
     uint8_t alg[4];
     uint8_t nonce[crypto_secretbox_NONCEBYTES];
+    uint8_t len[8];
     uint8_t m[];
 } secretbox_password_ciphertext;
 
 typedef struct PACKED {
     uint8_t nonce[crypto_secretbox_NONCEBYTES];
+    uint8_t len[8];
     uint8_t m[];
 } secretbox_ciphertext;
 
@@ -569,11 +406,12 @@ void cmd_secretbox(int argc, char *argv[argc]) {
         size_t clen = sizeof(secretbox_password_ciphertext) + mlen;
         secretbox_password_ciphertext *c = malloc(clen);
 
-        randombytes(c->salt, sizeof c->salt);
+        randombytes_buf(c->salt, sizeof c->salt);
         save_uint64(c->opslimit, opslimit);
         save_uint64(c->memlimit, memlimit);
         save_uint32(c->alg, alg);
-        randombytes(c->nonce, sizeof c->nonce);
+        randombytes_buf(c->nonce, sizeof c->nonce);
+        save_uint64(c->len, mlen);
 
         uint8_t k[crypto_secretbox_KEYBYTES];
 
@@ -605,7 +443,9 @@ void cmd_secretbox(int argc, char *argv[argc]) {
 
         size_t clen = sizeof(secretbox_ciphertext) + mlen;
         secretbox_ciphertext *c = malloc(clen);
-        randombytes(c->nonce, sizeof c->nonce);
+        randombytes_buf(c->nonce, sizeof c->nonce);
+        save_uint64(c->len, mlen);
+
         crypto_secretbox(c->m, m, mlen, c->nonce, k);
 
         int outfd = open(outfile, O_WRONLY|O_CREAT|O_TRUNC, public_mode);
@@ -734,7 +574,7 @@ void cmd_random(int argc, char *argv[argc]) {
     uint8_t data[n];
     char hexdata[2*n+1];
 
-    randombytes(data, sizeof data);
+    randombytes_buf(data, sizeof data);
     to_hex(n, data, hexdata);
     hexdata[2*n] = '\n';
 
@@ -748,14 +588,9 @@ cmd_t cmds[] = {
     {"box-keypair", cmd_box_keypair, "-p PUBLICKEY -s SECRETKEY"},
     {"box", cmd_box, "-p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]"},
     {"box-open", cmd_box_open, "-p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]"},
-    {"box-beforenm", cmd_box_beforenm, "-p PUBLICKEY -s SECRETKEY -k KEYFILE"},
-    {"box-afternm", cmd_box_afternm, "-k KEYFILE [-i IN] [-o OUT]"},
-    {"box-open-afternm", cmd_box_open_afternm, "-k KEYFILE [-i IN] [-o OUT]"},
     {"secretbox-key", cmd_secretbox_key, "-k KEYFILE"},
     {"secretbox", cmd_secretbox, "{-p | -k KEYFILE} [-i IN] [-o OUT]"},
     {"secretbox-open", cmd_secretbox_open, "{-p | -k KEYFILE} [-i IN] [-o OUT]"},
-    {"hash", cmd_hash, "[-i IN] [-o OUT]"},
-    {"random", cmd_random, "-n BYTES [-o OUT]"},
 };
 
 int main(int argc, char *argv[argc]) {
