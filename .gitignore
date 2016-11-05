@@ -1,18 +1,4 @@
-libnacl
-libnacl.a
-nacl
-<<<<<<< HEAD
-nacl-20110221
-nacl.debug
-testdir
-.tested
-scrypt
-libsodium*
+box
 .libsodium
-=======
-boxed
-sample
-unboxed
-password
-libnacl.a
->>>>>>> 86f4a99a037a8aa5cfcf9dda740aab114aaed274
+libsodium-*.tar.gz
+libsodium-*
