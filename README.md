@@ -1,57 +1,38 @@
-NAME
-----
+box
+===
 
-    **nacl** - simple command line interface to the
-    [https://nacl.cr.yp.to](NaCl: Networking and Cryptography Library).
+A utility for encrypting/authenticating data in "boxes" with secret or public
+keys.
 
-SYNOPSIS
+Synopsis
 --------
 
-    **nacl box-keypair -p PUBLICKEY -s SECRETKEY**
-    **nacl box -p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]**
-    **nacl box-open -p PUBLICKEY -s SECRETKEY [-i IN] [-o OUT]**
-    **nacl secretbox-key -k KEYFILE**
-    **nacl secretbox {-p | -k KEYFILE} [-i IN] [-o OUT]**
-    **nacl secretbox-open {-p | -k KEYFILE} [i IN] [-o OUT]**
+    box seal <plaintext >ciphertext
+    box open <ciphertext >plaintext
 
 TODO
 ----
 
-    - Change cli now that the focus is more on boxing.
-    - Should this utility focus on a command line utility for nacl or just
-      boxing?
-    - Implement the other functions.
-    - Option to read password from file (which will also allow testing the
-      password functionality).
-    - Choose pwhash parameters?  Maybe always use sensitive.
-    - Down the line, perhaps benchmarking.  At least do this before any other
-      optimization like mmap.
-    - Might actually be a good idea to get rid of some of the close's and free's
-      and make some stuff more global for simplicity, since it's just a short
-      lived utility that doesn't create memory/fd pressure.
+    - Password from file?  Secret key from file?  And generate such a key.
+    - Public-key encryption?  What would that interface look like?
+    - Customize pwhash parameters?  Maybe an option for --sensitive.
+    - Benchmarking for more optimizations wrt speed and memory.  E.g. mmap from
+    - file, streaming.
     - Reduce variables' scope to the minimum.
+    - File specific syntax might make it easier to box (e.g. automatically
+      creating file blah -> blah.box and vice versa and option to delete
+      originally like compression utils do).
     - Double check the bounds checking.  E.g. that the headers of files aren't
       too small.
-    - Testing on osx.
-    - More detailed documentation beyond synopsis.
-    - Update README to reflect docs.
-    - Add license and don't forget dependencies (libsodium).
+    - Build on osx.
+    - Add license and don't forget dependencies (libsodium and readpass).
     - Double check no branches/lookups depend on secrets and secret memory is
-      cleared.  Consider using the advanced sensitive data malloc's.
-    - Raw binary option?
-    - Don't dump ciphertext to terminal unless explicit.  Maybe same for reading
-      stdin from tty (i.e. don't read something that's probably binary like
-      ciphertext from stdin).
+      cleared.  Consider using the sensitive data malloc and stuff.
     - Util for encrypting/compressing tarballs and stuff.  Probably best off as
       a bash script.
-    - Don't ask to confirm password when unboxing.
-    - Any good reasons to store length in boxes?  Would make it somewhat more
-      efficient at the cost of slightly bigger box size.  Would also make it
-      possible to pack multiple boxes in a row which could more or less give us
-      packet-oriented streaming for free.
     - Ideally don't include extra zeros in boxes.
     - Make sure zeroes are cleared when reading in a file?
     - Make the nonce an optional parameter?  Could be good for network type
-      stuff.
+      stuff.  Maybe it'd be automatic for streaming stuff.
     - Maybe use AEAD for box metadata.
 

@@ -13,8 +13,6 @@ failure() {
 
 nacl=$(readlink -f nacl.debug)
 
-#export LD_LIBRARY_PATH=/usr/local/lib
-
 nacl() {
     valgrind --track-origins=yes -q "$nacl" "$@"
 }
