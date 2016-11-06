@@ -1,0 +1,33 @@
+
+# There are currently four modes: password, from, to, from-to.  To test the
+# password part we'd have to pipe into /dev/tty or something (or provide an
+# option to change the password device).
+
+boxbin=$(readlink -f box)
+
+box() {
+    "$boxbin" "$@"
+}
+
+alice-box() {
+    BOX_HOME=alice box "$@"
+}
+
+bob-box() {
+    BOX_HOME=bob box "$@"
+}
+
+trap 'rm -rf testing' EXIT
+rm -rf testing
+mkdir testing
+cd testing
+
+alice_id=$(alice-box new-identity alice)
+bob_id=$(bob-box new-identity bob)
+alice-box add-contact $bob_id
+bob-box add-contact $alice_id
+
+echo hello | alice-box seal -from alice | bob-box open
+echo hello | alice-box seal -to bob | bob-box open
+echo hello | alice-box seal -from alice -to bob | box-box open
+
