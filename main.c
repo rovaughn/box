@@ -750,6 +750,57 @@ __attribute__((noreturn)) void cmd_open(int argc, char *argv[argc]) {
     }
 }
 
+int show_contact(void *arg, int ncols, char *cols[ncols], char *names[ncols]) {
+    if (ncols != 3) {
+        fprintf(stderr, "Wrong number of columns.\n");
+        exit(1);
+    }
+
+    printf("%s %s %s\n", cols[0], cols[1], cols[2]);
+
+    return 0;
+}
+
+__attribute__((noreturn)) void cmd_list_contacts(int argc, char *argv[argc]) {
+    if (argc != 0) { usage(); }
+
+    sqlite3 *db = use_db();
+
+    char *errmsg;
+
+    sqlite3_exec(db,
+        "SELECT name, HEX(boxpk), HEX(signpk) FROM contact ORDER BY name;",
+        show_contact, NULL, &errmsg
+    );
+
+    if (errmsg) {
+        fprintf(stderr, "%s\n", errmsg);
+        exit(1);
+    }
+
+    exit(0);
+}
+
+__attribute__((noreturn)) void cmd_list_identities(int argc, char *argv[argc]) {
+    if (argc != 0) { usage(); }
+
+    sqlite3 *db = use_db();
+
+    char *errmsg;
+
+    sqlite3_exec(db,
+        "SELECT name, HEX(boxpk), HEX(signpk) FROM identity ORDER BY name;",
+        show_contact, NULL, &errmsg
+    );
+
+    if (errmsg) {
+        fprintf(stderr, "%s\n", errmsg);
+        exit(1);
+    }
+
+    exit(0);
+}
+
 int main(int argc, char *argv[argc]) {
     bin_name = argv[0];
 
@@ -759,10 +810,12 @@ int main(int argc, char *argv[argc]) {
         cmd_open(argc - 2, &argv[2]);
     } else if (argc >= 2 && strcmp(argv[1], "new-identity") == 0) {
         cmd_new_identity(argc - 2, &argv[2]);
-    /*} else if (argc == 2 && strcmp(argv[1], "list-contacts") == 0) {
-        cmd_list_contacts(argc - 2, &argv[2]);*/
     } else if (argc >= 2 && strcmp(argv[1], "add-contact") == 0) {
         cmd_add_contact(argc - 2, &argv[2]);
+    } else if (argc == 2 && strcmp(argv[1], "list-contacts") == 0) {
+        cmd_list_contacts(argc - 2, &argv[2]);
+    } else if (argc == 2 && strcmp(argv[1], "list-identities") == 0) {
+        cmd_list_identities(argc - 2, &argv[2]);
     } else {
         usage();
     }

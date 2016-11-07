@@ -1,4 +1,6 @@
 box
+box.mac
+box.musl
 box.debug
 libsodium-*.tar.gz
 libsodium-*

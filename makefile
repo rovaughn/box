@@ -1,5 +1,6 @@
 
 sodium_ver := 1.0.11
+sqlite_ver := 3150100
 
 .PHONY: clean
 
@@ -27,17 +28,29 @@ libsodium: libsodium-${sodium_ver}.tar.gz
 	cd libsodium-${sodium_ver} && make install
 	rm -rf libsodium-${sodium_ver}
 
-sqlite-autoconf-3150100.tar.gz:
-	wget 'https://www.sqlite.org/2016/sqlite-autoconf-3150100.tar.gz'
+/usr/local/lib/libsodium.so: libsodium-${sodium_ver}.tar.gz
+	rm -rf libsodium-${sodium_ver}
+	tar -xf libsodium-${sodium_ver}.tar.gz
+	cd libsodium-${sodium_ver} && ./configure
+	cd libsodium-${sodium_ver} && make
+	cd libsodium-${sodium_ver} && sudo make install
+	rm -rf libsodium-${sodium_ver}
+	touch .libsodium-global
 
-sqlite-autoconf-3150100: sqlite-autoconf-3150100.tar.gz
+sqlite-autoconf-${sqlite_ver}.tar.gz:
+	wget 'https://www.sqlite.org/2016/sqlite-autoconf-${sqlite_ver}.tar.gz'
+
+sqlite-autoconf-${sqlite_ver}: sqlite-autoconf-${sqlite_ver}.tar.gz
 	tar -xf $^
+	touch $@
 
-sqlite3.c: sqlite-autoconf-3150100
+sqlite3.c: sqlite-autoconf-${sqlite_ver}
 	ln -fs $^/sqlite3.c .
+	touch $@
 
-sqlite3.h: sqlite-autoconf-3150100
+sqlite3.h: sqlite-autoconf-${sqlite_ver}
 	ln -fs $^/sqlite3.h .
+	touch $@
 
 box.debug: main.c libsodium sqlite3.c sqlite3.h
 	gcc -Wall -Werror -g main.c readpass.c insecure_memzero.c warnp.c sqlite3.c \
@@ -47,16 +60,17 @@ box.musl: main.c libsodium.musl sqlite3.c sqlite3.h
 	musl-gcc -Wall -Werror -I/usr/local/include -O3 -static -flto \
 		     main.c readpass.c insecure_memzero.c warnp.c sqlite3.c \
 		     -Ilibsodium.musl/include -lsodium -Llibsodium.musl/lib -o $@
-	strip -s box
-	ls -lah box
+	strip -s $@
+	ln -sf $@ box
 
-box: main.c libsodium sqlite3.c sqlite3.h
+box.mac: /usr/local/lib/libsodium.so main.c sqlite3.c sqlite3.h
 	gcc -Wall -Werror -O3 -flto \
 		main.c readpass.c insecure_memzero.c warnp.c sqlite3.c -lsodium -lpthread \
-		-ldl -Ilibsodium/include -Llibsodium/lib -o $@
+		-ldl -o $@
+	ln -sf $@ box
 
 clean:
-	rm -rf libsodium-${sodium_ver}.tar.gz libsodium.musl libsodium \
-		     sqlite-autoconf-3150100.tar.gz sqlite3 sqlite3.h box box.debug \
+	rm -rf libsodium-*.tar.gz libsodium.musl libsodium \
+		     sqlite-autoconf-*.tar.gz sqlite3 sqlite3.h box box.debug \
 		     testlog
 
