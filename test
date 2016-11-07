@@ -5,8 +5,8 @@ set -eux -o pipefail
 # password part we'd have to pipe into /dev/tty or something (or provide an
 # option to change the password device).
 
-boxbin=$(readlink -f box.debug)
-export LD_LIBRARY_PATH=$(readlink -f libsodium/lib)
+boxbin=$(pwd)/box.debug
+export LD_LIBRARY_PATH=$(pwd)/libsodium/lib
 
 abox() {
     BOX_HOME=a valgrind -q "$boxbin" "$@"

@@ -576,7 +576,9 @@ __attribute__((noreturn)) void cmd_seal(int argc, char *argv[argc]) {
     }
 }
 
-__attribute__((noreturn)) void cmd_open() {
+__attribute__((noreturn)) void cmd_open(int argc, char *argv[argc]) {
+    if (argc != 0) { usage(); }
+
     if (isatty(STDIN_FILENO)) {
         fprintf(stderr, "Refusing to read box from terminal.\n");
         exit(1);

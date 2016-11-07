@@ -1,6 +1,7 @@
 box
 box.debug
 libsodium-*.tar.gz
+libsodium-*
 libsodium.musl
 libsodium
 sqlite-autoconf-*.tar.gz
@@ -8,3 +9,4 @@ sqlite-autoconf-*
 sqlite3.?
 testing
 testlog
+box.debug.dSYM
