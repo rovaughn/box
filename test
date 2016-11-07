@@ -1,20 +1,19 @@
+#!/bin/bash
+set -eux -o pipefail
 
 # There are currently four modes: password, from, to, from-to.  To test the
 # password part we'd have to pipe into /dev/tty or something (or provide an
 # option to change the password device).
 
-boxbin=$(readlink -f box)
+boxbin=$(readlink -f box.debug)
+export LD_LIBRARY_PATH=$(readlink -f libsodium/lib)
 
-box() {
-    "$boxbin" "$@"
+abox() {
+    BOX_HOME=a valgrind -q "$boxbin" "$@"
 }
 
-alice-box() {
-    BOX_HOME=alice box "$@"
-}
-
-bob-box() {
-    BOX_HOME=bob box "$@"
+bbox() {
+    BOX_HOME=b valgrind -q "$boxbin" "$@"
 }
 
 trap 'rm -rf testing' EXIT
@@ -22,12 +21,12 @@ rm -rf testing
 mkdir testing
 cd testing
 
-alice_id=$(alice-box new-identity alice)
-bob_id=$(bob-box new-identity bob)
-alice-box add-contact $bob_id
-bob-box add-contact $alice_id
+aid=$(abox new-identity alice)
+bid=$(bbox new-identity bob)
+abox add-contact $bid
+bbox add-contact $aid
 
-echo hello | alice-box seal -from alice | bob-box open
-echo hello | alice-box seal -to bob | bob-box open
-echo hello | alice-box seal -from alice -to bob | box-box open
+echo hello | abox seal -from alice | bbox open
+echo hello | abox seal -to bob | bbox open
+echo hello | abox seal -from alice -to bob | bbox open
 
