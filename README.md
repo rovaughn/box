@@ -7,13 +7,13 @@ A utility for encrypting/authenticating data in "boxes".
 can only be opened by entering the same password.
 
 `box seal -to <receiver>` seals stdin into a box that can only be opened by
-<receiver>.
+`<receiver>`.
 
 `box seal -from <sender>` puts stdin unencrypted into a box where a receiver
-can verify it came from <sender>.
+can verify it came from `<sender>`.
 
 `box seal -from <sender> -to <receiver>` seals stdin into a box that can only
-be opened by <receiver>, and <receiver> can verify it came from <sender>.
+be opened by `<receiver>`, and `<receiver>` can verify it came from `<sender>`.
 
 `box open` opens a box from stdin.
 
