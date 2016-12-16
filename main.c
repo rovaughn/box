@@ -117,14 +117,6 @@ void read_exactly(int fd, size_t len, uint8_t buf[len]) {
     }
 }
 
-void fataldb(sqlite3 *db, const char *message, int rc) {
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "%s: %s\n", message, sqlite3_errmsg(db));
-        sqlite3_close(db);
-        exit(1);
-    }
-}
-
 #define fataldb(rc) if ((rc) != SQLITE_OK) { fprintf(stderr, "Line #%d: %s\n", __LINE__, sqlite3_errmsg(db)); sqlite3_close(db); exit(1); }
 
 // databse is at the first valid location of the following:
@@ -204,6 +196,7 @@ const char *bin_name;
 
 __attribute__((noreturn)) void usage() {
     fprintf(stderr, "%s seal -password\n", bin_name);
+    fprintf(stderr, "%s seal -password-file <file>\n", bin_name);
     fprintf(stderr, "%s seal -to <contact>\n", bin_name);
     fprintf(stderr, "%s seal -from <identity>\n", bin_name);
     fprintf(stderr, "%s seal -to <contact> -from <identity>\n", bin_name);
@@ -362,11 +355,15 @@ __attribute__((noreturn)) void cmd_seal(int argc, char *argv[argc]) {
     bool use_password = false;
     char *to = NULL;
     char *from = NULL;
+    char *password_file = NULL;
 
     while (*argv) {
         if (strcmp(*argv, "-password") == 0) {
             use_password = true;
             argv = &argv[1];
+        } else if (strcmp(*argv, "-password-file") == 0) {
+            password_file = argv[1];
+            argv = &argv[2];
         } else if (strcmp(*argv, "-to") == 0) {
             to = argv[1];
             argv = &argv[2];
@@ -379,7 +376,7 @@ __attribute__((noreturn)) void cmd_seal(int argc, char *argv[argc]) {
         }
     }
 
-    if (use_password && !to && !from) {
+    if (use_password && !password_file && !to && !from) {
         if (isatty(STDOUT_FILENO)) {
             fprintf(stderr, "Refusing to write box to tty.\n");
             exit(1);
@@ -427,7 +424,55 @@ __attribute__((noreturn)) void cmd_seal(int argc, char *argv[argc]) {
         fprintf(stderr, "Writing out %zu bytes...\n", boxlen);
         fatal(write(STDOUT_FILENO, box, boxlen), "write");
         exit(0);
-    } else if (to && from && !use_password) {
+    } else if (password_file && !use_password && !to && !from) {
+        if (isatty(STDOUT_FILENO)) {
+            fprintf(stderr, "Refusing to write box to tty.\n");
+            exit(1);
+        }
+
+        size_t passwordlen;
+        char *password = load_all(password_file, &passwordlen);
+
+        uint64_t opslimit = crypto_pwhash_OPSLIMIT_MODERATE;
+        size_t memlimit = crypto_pwhash_MEMLIMIT_MODERATE;
+        int alg = crypto_pwhash_ALG_DEFAULT;
+
+        if (isatty(STDIN_FILENO)) {
+            fprintf(stderr, "Type your message below then press Ctrl+D on its own line to end it:\n");
+        }
+
+        size_t mlen;
+        void *m = read_all(STDIN_FILENO, &mlen);
+
+        size_t clen = crypto_secretbox_MACBYTES + mlen;
+        size_t boxlen = sizeof(box_password_header) + clen;
+        box_password_header *box = malloc(boxlen);
+
+        save_uint64(box->header.len, boxlen);
+        save_uint8(box->header.type, BOX_PASSWORD);
+        randombytes_buf(box->salt, sizeof box->salt);
+        save_uint64(box->opslimit, opslimit);
+        save_uint64(box->memlimit, memlimit);
+        save_uint32(box->alg, alg);
+        randombytes_buf(box->nonce, sizeof box->nonce);
+
+        uint8_t k[crypto_secretbox_KEYBYTES];
+
+        fprintf(stderr, "Hashing password, this takes a few seconds...\n");
+        fatal(crypto_pwhash(
+                k, sizeof k,
+                password, passwordlen,
+                box->salt,
+                opslimit, memlimit, alg
+       ), "crypto_pwhash");
+
+        fprintf(stderr, "Encrypting message...\n");
+        crypto_secretbox_easy(box->c, m, mlen, box->nonce, k);
+
+        fprintf(stderr, "Writing out %zu bytes...\n", boxlen);
+        fatal(write(STDOUT_FILENO, box, boxlen), "write");
+        exit(0);
+    } else if (to && from && !use_password && !password_file) {
         if (isatty(STDOUT_FILENO)) {
             fprintf(stderr, "Refusing to write box to tty.\n");
             exit(1);
@@ -488,7 +533,7 @@ __attribute__((noreturn)) void cmd_seal(int argc, char *argv[argc]) {
         fprintf(stderr, "Writing out %zu bytes...\n", boxlen);
         fatal(write(STDOUT_FILENO, box, boxlen), "write");
         exit(0);
-    } else if (to && !from && !use_password) {
+    } else if (to && !from && !use_password && !password_file) {
         if (isatty(STDOUT_FILENO)) {
             fprintf(stderr, "Refusing to write box to tty.\n");
             exit(1);
@@ -529,7 +574,7 @@ __attribute__((noreturn)) void cmd_seal(int argc, char *argv[argc]) {
         fprintf(stderr, "Writing out %zu bytes...\n", boxlen);
         fatal(write(STDOUT_FILENO, box, boxlen), "write");
         exit(0);
-    } else if (from && !to && !use_password) {
+    } else if (from && !to && !use_password && !password_file) {
         if (isatty(STDOUT_FILENO)) {
             fprintf(stderr, "Refusing to write box to tty.\n");
             exit(1);

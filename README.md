@@ -6,6 +6,9 @@ A utility for encrypting/authenticating data in "boxes".
 `box seal -password` asks for a password and then seals stdin into a box that
 can only be opened by entering the same password.
 
+`box seal -password-file <file>` is the same as `-password` but reads the
+password from the given file.
+
 `box seal -to <receiver>` seals stdin into a box that can only be opened by
 `<receiver>`.
 
@@ -27,6 +30,9 @@ your known contacts.
 TODO
 ----
 
+- Maybe rename identities to senders and contacts to receivers.  Would keep
+  naming schemes more consistent.  And perhaps a sender is automatically a
+  receiver.
 - Password from file?  Maybe as long as /dev/tty can be hijacked.
 - Customize pwhash parameters?  Maybe just a -sensitive option.
 - Benchmarking for more optimizations wrt speed and memory.  E.g. mmap,
