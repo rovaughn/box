@@ -57,8 +57,8 @@ box.debug: main.c libsodium sqlite3.c sqlite3.h
 		-lsodium -lpthread -ldl -Ilibsodium/include -Llibsodium/lib -o $@
 
 box.musl: main.c libsodium.musl sqlite3.c sqlite3.h
-	musl-gcc -Wall -Werror -I/usr/local/include -O3 -static -flto \
-		     main.c readpass.c insecure_memzero.c warnp.c sqlite3.c \
+	musl-gcc -Wall -Werror -I/usr/local/include -O2 -march=native -static \
+		     -flto main.c readpass.c insecure_memzero.c warnp.c sqlite3.c \
 		     -Ilibsodium.musl/include -lsodium -Llibsodium.musl/lib -o $@
 	strip -s $@
 	ln -sf $@ box
@@ -73,4 +73,3 @@ clean:
 	rm -rf libsodium-*.tar.gz libsodium.musl libsodium \
 		     sqlite-autoconf-*.tar.gz sqlite3 sqlite3.h box box.debug \
 		     testlog
-

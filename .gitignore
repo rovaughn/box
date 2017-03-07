@@ -13,3 +13,7 @@ sqlite-autoconf-3150100.tar.gz
 sqlite-autoconf-3150100
 sqlite3.c
 sqlite3.h
+testing
+testlog
+libsodium
+box.debug
