@@ -201,6 +201,7 @@ __attribute__((noreturn)) void usage() {
     fprintf(stderr, "%s seal -from <identity>\n", bin_name);
     fprintf(stderr, "%s seal -to <contact> -from <identity>\n", bin_name);
     fprintf(stderr, "%s open\n", bin_name);
+    fprintf(stderr, "%s open -password-file <file>\n", bin_name);
     fprintf(stderr, "%s add-contact <name> <public-key>\n", bin_name);
     fprintf(stderr, "%s list-contacts\n", bin_name);
     fprintf(stderr, "%s new-identity <name>\n", bin_name);
@@ -622,7 +623,16 @@ __attribute__((noreturn)) void cmd_seal(int argc, char *argv[argc]) {
 }
 
 __attribute__((noreturn)) void cmd_open(int argc, char *argv[argc]) {
-    if (argc != 0) { usage(); }
+    char *password_file = NULL;
+
+    while (*argv) {
+        if (strcmp(argv[0], "-password-file") == 0) {
+            password_file = argv[1];
+            argv = &argv[2];
+        } else {
+            usage();
+        }
+    }
 
     if (isatty(STDIN_FILENO)) {
         fprintf(stderr, "Refusing to read box from terminal.\n");
@@ -649,14 +659,21 @@ __attribute__((noreturn)) void cmd_open(int argc, char *argv[argc]) {
         box_password_header *box = (box_password_header*)raw_box;
 
         char *password;
-        readpass(&password, "Password", NULL, 1);
+        size_t passwordlen;
+
+        if (password_file) {
+            password = load_all(password_file, &passwordlen);
+        } else {
+            readpass(&password, "Password", NULL, 1);
+            passwordlen = strlen(password);
+        }
 
         uint8_t k[crypto_secretbox_KEYBYTES];
 
         fprintf(stderr, "Hashing password, this takes a few seconds...\n");
         fatal(crypto_pwhash(
             k, sizeof k,
-            password, strlen(password),
+            password, passwordlen,
             box->salt,
             read_uint64(box->opslimit), read_uint64(box->memlimit),
             read_uint32(box->alg)
