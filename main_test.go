@@ -3,172 +3,138 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
-	"sync"
 	"testing"
-	"time"
 )
 
-type errgroup struct {
-	group sync.WaitGroup
-	done  chan error
+func box(r io.Reader, w io.Writer, args ...string) error {
+	newArgs := make([]string, 0, 1+len(args))
+	newArgs = append(newArgs, "box")
+	newArgs = append(newArgs, args...)
+	return doMain(newArgs, r, w)
 }
 
-func newErrgroup(timeout time.Duration) *errgroup {
-	group := &errgroup{
-		done: make(chan error),
-	}
-	go func() {
-		time.Sleep(timeout)
-		group.done <- fmt.Errorf("Timed out")
-	}()
-	return group
-}
-
-func (g *errgroup) do(f func() error) {
-	g.group.Add(1)
-	go func() {
-		defer g.group.Done()
-		if err := f(); err != nil {
-			g.done <- err
-		}
-	}()
-}
-
-func (g *errgroup) wait() error {
-	go func() {
-		g.group.Wait()
-		g.done <- nil
-	}()
-	return <-g.done
-}
-
-func TestSealPasswordFile(t *testing.T) {
-	testPayload := []byte("attack at dawn")
-	testPassword := []byte("hunter2")
-
-	box := func() []byte {
-		rpass, wpass, err := os.Pipe()
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		rpayload, wpayload, err := os.Pipe()
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		rbox, wbox, err := os.Pipe()
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		group := newErrgroup(time.Second)
-		group.do(func() error {
-			if _, err := wpass.Write(testPassword); err != nil {
-				return err
-			}
-			return wpass.Close()
-		})
-
-		group.do(func() error {
-			if _, err := wpayload.Write(testPayload); err != nil {
-				return err
-			}
-			return wpayload.Close()
-		})
-
-		group.do(func() error {
-			originalStdin := os.Stdin
-			defer func() { os.Stdin = originalStdin }()
-			os.Stdin = rpayload
-
-			originalStdout := os.Stdout
-			defer func() { os.Stdout = originalStdout }()
-			os.Stdout = wbox
-
-			if err := doMain([]string{"box", "seal", "-password-file", fmt.Sprintf("/dev/fd/%d", rpass.Fd())}); err != nil {
-				return err
-			}
-
-			return wbox.Close()
-		})
-
-		var box []byte
-
-		group.do(func() error {
-			var err error
-			box, err = ioutil.ReadAll(rbox)
-			return err
-		})
-
-		if err := group.wait(); err != nil {
-			t.Fatal(err)
-		}
-
-		return box
-	}()
-
-	rpass, wpass, err := os.Pipe()
+func TestPassword(t *testing.T) {
+	rpass1, wpass1, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rpass1.Close()
+	defer wpass1.Close()
 
-	rpayload, wpayload, err := os.Pipe()
+	expectRead := func(t *testing.T, r io.Reader, s string) error {
+		t.Helper()
+		buf := make([]byte, len(s))
+		if _, err := io.ReadFull(r, buf); err != nil {
+			return err
+		}
+		if !bytes.Equal(buf, []byte(s)) {
+			return fmt.Errorf("Expected to read %q, not %q", s, buf)
+		}
+		return nil
+	}
+
+	go func() {
+		if err := expectRead(t, wpass1, "Password: "); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fmt.Fprintln(wpass1, "hunter2"); err != nil {
+			t.Fatal(err)
+		}
+		if err := expectRead(t, wpass1, "\nConfirm password: "); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fmt.Fprintln(wpass1, "hunter2"); err != nil {
+			t.Fatal(err)
+		}
+		if err := expectRead(t, wpass1, "\n"); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	message := []byte("attack at dawn")
+
+	var sealed bytes.Buffer
+	if err := box(bytes.NewReader(message), &sealed, "seal", "-password", "-tty", fmt.Sprintf("/dev/fd/%d", rpass1.Fd())); err != nil {
+		t.Fatal(err)
+	}
+
+	rpass2, wpass2, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rpass2.Close()
+	defer wpass2.Close()
 
-	rbox, wbox, err := os.Pipe()
+	go func() {
+		if err := expectRead(t, wpass2, "Password: "); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fmt.Fprintln(wpass2, "hunter2"); err != nil {
+			t.Fatal(err)
+		}
+		if err := expectRead(t, wpass2, "\n"); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	var unsealed bytes.Buffer
+	if err := box(bytes.NewReader(sealed.Bytes()), &unsealed, "open", "-password", "-tty", fmt.Sprintf("/dev/fd/%d", rpass2.Fd())); err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(message, unsealed.Bytes()) {
+		t.Fatalf("Expected unsealed payload to be %q, not %q", message, unsealed.Bytes())
+	}
+}
+
+func TestPasswordFile(t *testing.T) {
+	rpass1, wpass1, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rpass1.Close()
+	defer wpass1.Close()
 
-	group := newErrgroup(time.Second)
-	group.do(func() error {
-		if _, err := wpass.Write(testPassword); err != nil {
-			return err
+	go func() {
+		if _, err := fmt.Fprintln(wpass1, "hunter2"); err != nil {
+			t.Fatal(err)
 		}
-		return wpass.Close()
-	})
-
-	group.do(func() error {
-		if _, err := wbox.Write(box); err != nil {
-			return err
+		if err := wpass1.Close(); err != nil {
+			t.Fatal(err)
 		}
-		return wbox.Close()
-	})
+	}()
 
-	group.do(func() error {
-		originalStdin := os.Stdin
-		defer func() { os.Stdin = originalStdin }()
-		os.Stdin = rbox
+	message := []byte("attack at dawn")
 
-		originalStdout := os.Stdout
-		defer func() { os.Stdout = originalStdout }()
-		os.Stdout = wpayload
-
-		if err := doMain([]string{"box", "open", "-password-file", fmt.Sprintf("/dev/fd/%d", rpass.Fd())}); err != nil {
-			return err
-		}
-
-		return wpayload.Close()
-	})
-
-	var payload []byte
-
-	group.do(func() error {
-		var err error
-		payload, err = ioutil.ReadAll(rpayload)
-		return err
-	})
-
-	if err := group.wait(); err != nil {
+	var sealed bytes.Buffer
+	if err := box(bytes.NewReader(message), &sealed, "seal", "-password-file", fmt.Sprintf("/dev/fd/%d", rpass1.Fd())); err != nil {
 		t.Fatal(err)
 	}
 
-	if !bytes.Equal(payload, testPayload) {
-		t.Fatalf("Payload is wrong; got %q, expected %q", payload, testPayload)
+	rpass2, wpass2, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rpass2.Close()
+	defer wpass2.Close()
+
+	go func() {
+		if _, err := fmt.Fprintln(wpass2, "hunter2"); err != nil {
+			t.Fatal(err)
+		}
+		if err := wpass2.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	var unsealed bytes.Buffer
+	if err := box(bytes.NewReader(sealed.Bytes()), &unsealed, "open", "-password-file", fmt.Sprintf("/dev/fd/%d", rpass2.Fd())); err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(message, unsealed.Bytes()) {
+		t.Fatalf("Expected unsealed payload to be %q, not %q", message, unsealed.Bytes())
 	}
 }
