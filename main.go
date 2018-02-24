@@ -87,7 +87,7 @@ func loadEntity(name string) (*entity, error) {
 
 func doMain(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("Usage: no command given")
+		args = []string{"box", "help"}
 	}
 
 	boxdir := os.Getenv("BOXDIR")
@@ -101,6 +101,13 @@ func doMain(args []string) error {
 	}
 
 	switch args[1] {
+	case "help":
+		fmt.Fprintln(os.Stderr, "box help")
+		fmt.Fprintln(os.Stderr, "box new-identity [-name NAME]")
+		fmt.Fprintln(os.Stderr, "box peer -name NAME -key PUBLICKEY")
+		fmt.Fprintln(os.Stderr, "box list [NAME ...]")
+		fmt.Fprintln(os.Stderr, "box seal [-from IDENTITY] -to PEER <MESSAGE >SEALED")
+		fmt.Fprintln(os.Stderr, "box open -from PEER [-to IDENTITY] <SEALED >MESSAGE")
 	case "seal":
 		if terminal.IsTerminal(int(os.Stdin.Fd())) {
 			fmt.Fprintln(os.Stderr, "Note: reading payload from stdin")
