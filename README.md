@@ -53,7 +53,7 @@ Now Alice can seal a message and send it to Bob:
 
 	alice$ echo 'attack at dawn' | box seal -to bob >message.sealed
 
-	bob$ box seal -from alice <message.sealed
+	bob$ open seal -from alice <message.sealed
 	attack at dawn
 
 ## REFERENCE
