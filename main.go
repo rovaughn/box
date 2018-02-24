@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"golang.org/x/crypto/nacl/box"
+	"golang.org/x/crypto/ssh/terminal"
 	"io"
 	"io/ioutil"
 	"os"
@@ -84,7 +85,7 @@ func loadEntity(name string) (*entity, error) {
 	return &entity, nil
 }
 
-func doMain(args []string, in io.Reader, out io.Writer) error {
+func doMain(args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("Usage: no command given")
 	}
@@ -101,6 +102,14 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 
 	switch args[1] {
 	case "seal":
+		if terminal.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Fprintln(os.Stderr, "Note: reading from stdin")
+		}
+
+		if terminal.IsTerminal(int(os.Stdout.Fd())) {
+			return fmt.Errorf("stdout is a terminal")
+		}
+
 		var from, to string
 		f := flag.NewFlagSet("seal", flag.ExitOnError)
 		f.StringVar(&from, "from", "self", "Box is authenticated as coming from this identity")
@@ -140,7 +149,7 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 		chunk := make([]byte, maxChunkSize)
 
 		for {
-			n, err := in.Read(buf)
+			n, err := os.Stdin.Read(buf)
 			if n == 0 && err == io.EOF {
 				break
 			} else if err != nil && err != io.EOF {
@@ -156,11 +165,19 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 			chunk = append(chunk, nonce[:]...)
 			chunk = box.SealAfterPrecomputation(chunk, buf[:n], &nonce, &sharedKey)
 
-			if err := emitChunk(out, chunk); err != nil {
+			if err := emitChunk(os.Stdout, chunk); err != nil {
 				return fmt.Errorf("Emitting chunk: %s", err)
 			}
 		}
 	case "open":
+		if terminal.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Fprintln(os.Stderr, "Note: reading from stdin")
+		}
+
+		if terminal.IsTerminal(int(os.Stdout.Fd())) {
+			return fmt.Errorf("stdout is a terminal")
+		}
+
 		var from, to string
 		f := flag.NewFlagSet("open", flag.ExitOnError)
 		f.StringVar(&from, "from", "", "Box originates from this peer")
@@ -200,7 +217,7 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 		buf := make([]byte, maxChunkSize-24-box.Overhead)
 
 		for {
-			n, err := readChunk(in, chunk)
+			n, err := readChunk(os.Stdin, chunk)
 			if err == io.EOF {
 				break
 			} else if err != nil {
@@ -219,7 +236,7 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 				return fmt.Errorf("Failed to unseal chunk")
 			}
 
-			if _, err := out.Write(buf); err != nil {
+			if _, err := os.Stdout.Write(buf); err != nil {
 				return fmt.Errorf("Writing out message: %s", err)
 			}
 		}
@@ -370,7 +387,7 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 }
 
 func main() {
-	if err := doMain(os.Args, os.Stdin, os.Stdout); err != nil {
+	if err := doMain(os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(1)
 	}
