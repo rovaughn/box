@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eux
+
+golint
+go vet
+go test
+go build
+
+box_path=$(readlink -f box)
+box() {
+	"$box_path" $@
+}
+
+rm -rf testdir
+mkdir testdir
+cd testdir
+
+BOXDIR=alice box new-identity
+BOXDIR=bob box new-identity
+
+alicepk=$(BOXDIR=alice box list self | cut -d' ' -f2)
+bobpk=$(BOXDIR=bob box list self | cut -d' ' -f2)
+
+BOXDIR=alice box add-peer -name bob -key "$bobpk"
+BOXDIR=bob box add-peer -name alice -key "$alicepk"
+
+echo 'attack at dawn' >message
+BOXDIR=alice box seal -to bob <message >message.sealed
+BOXDIR=bob box open -from alice <message.sealed >message.unsealed
+
+if ! diff message message.unsealed; then
+	echo "Messages were different!"
+	exit !
+fi

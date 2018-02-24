@@ -1,40 +1,33 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/hex"
+	"encoding/pem"
 	"flag"
 	"fmt"
-	"golang.org/x/crypto/argon2"
-	"golang.org/x/crypto/nacl/secretbox"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/crypto/nacl/box"
 	"io"
 	"io/ioutil"
 	"os"
 	"os/user"
 	"path"
-	"runtime"
-	"syscall"
 )
 
-const argonTime = 1
-const argonMemory = 64 * 1024
-const argonSaltLen = 16
-const chunkSize = 16 * 1024
+const maxChunkSize = 16 * 1024
 
 func emitChunk(w io.Writer, chunk []byte) error {
 	n := uint16(len(chunk))
-	if int(n) != len(chunk) {
+	if n > maxChunkSize {
 		panic("chunk too big")
 	}
 
-	header := make([]byte, 4)
-	binary.LittleEndian.PutUint16(header, n)
+	var header [4]byte
+	binary.LittleEndian.PutUint16(header[:], n)
 
-	if _, err := w.Write(header); err != nil {
+	if _, err := w.Write(header[:]); err != nil {
 		return err
 	}
 
@@ -42,115 +35,59 @@ func emitChunk(w io.Writer, chunk []byte) error {
 	return err
 }
 
-// TODO If no code takes advantage of the appending feature, probably best to remove it.
-// TODO this doesn't actually do any appending; and maybe it shouldn't
-func readChunk(r io.Reader, chunk []byte) ([]byte, error) {
-	header := make([]byte, 4)
-	if _, err := io.ReadFull(r, header); err != nil {
-		return nil, err
+func readChunk(r io.Reader, chunk []byte) (int, error) {
+	var header [4]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
+		return 0, err
+	}
+	n := int(binary.LittleEndian.Uint16(header[:]))
+
+	if n > maxChunkSize {
+		return 0, fmt.Errorf("Chunk is too big")
 	}
 
-	n := int(binary.LittleEndian.Uint16(header))
-
-	if n > 0 {
-		originalLen := len(chunk)
-		chunk = chunk[:originalLen+n]
-
-		if _, err := io.ReadFull(r, chunk[originalLen:]); err != nil {
-			return nil, err
-		}
-	}
-
-	return chunk, nil
+	return io.ReadFull(r, chunk[:n])
 }
 
-type lockFile *os.File
-
-type config struct {
-	Version    int `json:"version"`
-	Identities map[string]struct {
-		Ed25519SecretKey []byte `json:"ed25519_secret_key"`
-		Ed25519PublicKey []byte `json:"ed25519_public_key"`
-		BoxSecretKey     []byte `json:"box_secret_key"`
-		BoxPublicKey     []byte `json:"box_public_key"`
-	} `json:"identities"`
-	Contacts map[string]struct {
-		Ed25519PublicKey []byte `json:"ed25519_public_key"`
-		BoxPublicKey     []byte `json:"box_public_key"`
-	} `json:"contacts"`
-}
-
-func loadConfig() (*config, error) {
-	currentUser, err := user.Current()
+func loadPeer(name string) (*[32]byte, error) {
+	data, err := ioutil.ReadFile(name)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO make sure locking is correct in scenario where file doesn't originally exist.
-
-	var config config
-
-	configFile, err := os.Open(path.Join(currentUser.HomeDir, ".box"))
-	if os.IsNotExist(err) {
-		return &config, nil
-	} else if err != nil {
-		return nil, err
-	}
-	defer configFile.Close()
-
-	if err := syscall.Flock(int(configFile.Fd()), syscall.LOCK_SH); err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err := syscall.Flock(int(configFile.Fd()), syscall.LOCK_UN); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
-	}()
-
-	if err := json.NewDecoder(configFile).Decode(&config); err != nil {
-		return nil, err
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, fmt.Errorf("Did not find PEM data")
 	}
 
-	return &config, nil
+	if block.Type == "BOX SECRET SEED" {
+		publicKey, _, err := box.GenerateKey(bytes.NewReader(block.Bytes))
+		return publicKey, err
+	} else if block.Type == "BOX PUBLIC KEY" {
+		var publicKey [32]byte
+		copy(publicKey[:], block.Bytes)
+		return &publicKey, nil
+	} else {
+		return nil, fmt.Errorf("Expected peer to have BOX SECRET SEED or BOX PUBLIC KEY blocks")
+	}
 }
 
-func newPasswordReader(f *os.File) func(string) ([]byte, error) {
-	fd := int(f.Fd())
-	if terminal.IsTerminal(fd) {
-		return func(prompt string) ([]byte, error) {
-			if _, err := fmt.Fprint(f, prompt); err != nil {
-				return nil, err
-			}
-
-			password, err := terminal.ReadPassword(fd)
-			if err != nil {
-				return nil, err
-			}
-
-			if _, err := fmt.Fprint(f, "\n"); err != nil {
-				return nil, err
-			}
-
-			return password, err
-		}
-	} else {
-		scanner := bufio.NewScanner(f)
-		return func(prompt string) ([]byte, error) {
-			if _, err := fmt.Fprint(f, prompt); err != nil {
-				return nil, err
-			}
-
-			if scanner.Scan() {
-				if _, err := fmt.Fprint(f, "\n"); err != nil {
-					return nil, err
-				}
-
-				return scanner.Bytes(), nil
-			} else {
-				return nil, scanner.Err()
-			}
-		}
+func loadIdentity(name string) (*[32]byte, *[32]byte, error) {
+	data, err := ioutil.ReadFile(name)
+	if err != nil {
+		return nil, nil, err
 	}
+
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, nil, fmt.Errorf("Did not find PEM data")
+	}
+
+	if block.Type != "BOX SECRET SEED" {
+		return nil, nil, fmt.Errorf("Expected identity file to contain BOX SECRET SEED")
+	}
+
+	return box.GenerateKey(bytes.NewReader(block.Bytes))
 }
 
 func doMain(args []string, in io.Reader, out io.Writer) error {
@@ -158,207 +95,204 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 		return fmt.Errorf("Usage: no command given")
 	}
 
+	boxdir := os.Getenv("BOXDIR")
+	if boxdir == "" {
+		current, err := user.Current()
+		if err != nil {
+			return fmt.Errorf("Getting current user: %s", err)
+		}
+
+		boxdir = path.Join(current.HomeDir, ".box")
+	}
+
 	switch args[1] {
 	case "seal":
-		var askPassword bool
-		var passwordFile, from, to, ttyFilename string
+		var from, to string
 		f := flag.NewFlagSet("seal", flag.ExitOnError)
-		f.BoolVar(&askPassword, "password", false, "Ask for a password")
-		f.StringVar(&passwordFile, "password-file", "", "Use the contents of this file as a password")
-		f.StringVar(&from, "from", "", "Box can only be opened by this receiver")
-		f.StringVar(&to, "to", "", "Box can only be opened by this receiver")
-		f.StringVar(&ttyFilename, "tty", "/dev/tty", "Terminal to read passwords on")
+		f.StringVar(&from, "from", "self", "Box is authenticated as coming from this identity")
+		f.StringVar(&to, "to", "", "Box can only be opened by this peer")
 		f.Parse(args[2:])
 
-		if (askPassword || passwordFile != "") && from == "" && to == "" {
-			var password []byte
+		if from == "" {
+			return fmt.Errorf("-from required")
+		}
 
-			if askPassword && passwordFile == "" {
-				tty, err := os.Open(ttyFilename)
-				if err != nil {
-					return fmt.Errorf("Opening TTY: %s", err)
-				}
-				defer tty.Close()
+		if to == "" {
+			return fmt.Errorf("-to required")
+		}
 
-				readPassword := newPasswordReader(tty)
+		_, senderSecretKey, err := loadIdentity(path.Join(boxdir, from))
+		if err != nil {
+			return fmt.Errorf("Loading identity: %s", err)
+		}
 
-				password1, err := readPassword("Password: ")
-				if err != nil {
-					return fmt.Errorf("Reading password: %s", err)
-				}
+		receiverPublicKey, err := loadPeer(path.Join(boxdir, to))
+		if err != nil {
+			return fmt.Errorf("Loading peer: %s", err)
+		}
 
-				password2, err := readPassword("Confirm password: ")
-				if err != nil {
-					return fmt.Errorf("Reading password confirmation: %s", err)
-				}
+		var sharedKey [32]byte
+		box.Precompute(&sharedKey, receiverPublicKey, senderSecretKey)
 
-				if !bytes.Equal(password1, password2) {
-					return fmt.Errorf("Passwords don't match")
-				}
+		buf := make([]byte, maxChunkSize-24-box.Overhead)
+		chunk := make([]byte, maxChunkSize)
 
-				password = []byte(password1)
-			} else if !askPassword && passwordFile != "" {
-				var err error
-				password, err = ioutil.ReadFile(passwordFile)
-				if err != nil {
-					return err
-				}
-			} else {
-				return fmt.Errorf("Usage: one of -password or -password-file must be given, but not both")
+		for {
+			n, err := in.Read(buf)
+			if n == 0 && err == io.EOF {
+				break
+			} else if err != nil && err != io.EOF {
+				return fmt.Errorf("Reading chunk: %s", err)
 			}
-
-			salt := make([]byte, argonSaltLen)
-			if _, err := rand.Read(salt); err != nil {
-				return fmt.Errorf("Generating salt: %s", err)
-			}
-
-			keySlice := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, uint8(runtime.NumCPU()), 32)
-
-			var key [32]byte
-			copy(key[:], keySlice)
-
-			if err := emitChunk(out, []byte("password")); err != nil {
-				return fmt.Errorf("Writing box: %s", err)
-			}
-
-			paramChunk := make([]byte, argonSaltLen+4+4)
-			copy(paramChunk[0:argonSaltLen], salt)
-			binary.LittleEndian.PutUint32(paramChunk[argonSaltLen+0:argonSaltLen+4], argonTime)
-			binary.LittleEndian.PutUint32(paramChunk[argonSaltLen+4:argonSaltLen+8], argonMemory)
-			if err := emitChunk(out, paramChunk); err != nil {
-				return fmt.Errorf("Writing box: %s", err)
-			}
-
-			message := make([]byte, chunkSize)
-			chunk := make([]byte, argonSaltLen+chunkSize+secretbox.Overhead)
 
 			var nonce [24]byte
-
-			for {
-				n, err := in.Read(message)
-				if n == 0 && err == io.EOF {
-					break
-				} else if err != nil && err != io.EOF {
-					return fmt.Errorf("Reading payload: %s", err)
-				}
-
-				if _, err := rand.Read(nonce[:]); err != nil {
-					return fmt.Errorf("Generating nonce: %s", err)
-				}
-
-				chunk = chunk[:24]
-				copy(chunk, nonce[:])
-				chunk = secretbox.Seal(chunk, message[:n], &nonce, &key)
-
-				if err := emitChunk(out, chunk); err != nil {
-					return fmt.Errorf("Writing box: %s", err)
-				}
+			if _, err := rand.Read(nonce[:]); err != nil {
+				return fmt.Errorf("Creating nonce: %s", err)
 			}
-		} else if !askPassword && passwordFile == "" && from != "" && to == "" {
-			panic("unsupported")
-		} else if !askPassword && passwordFile == "" && from == "" && to != "" {
-			panic("unsupported")
-		} else if !askPassword && passwordFile == "" && from != "" && to != "" {
-			panic("unsupported")
-		} else {
-			return fmt.Errorf("-password, -password-file, -from, -to, or -from and -to must be specified")
+
+			chunk = chunk[:0]
+			chunk = append(chunk, nonce[:]...)
+			chunk = box.SealAfterPrecomputation(chunk, buf[:n], &nonce, &sharedKey)
+
+			if err := emitChunk(out, chunk); err != nil {
+				return fmt.Errorf("Emitting chunk: %s", err)
+			}
 		}
 	case "open":
-		var askPassword bool
-		var passwordFile, ttyFilename string
-		f := flag.NewFlagSet("seal", flag.ExitOnError)
-		f.BoolVar(&askPassword, "password", false, "Ask for a password")
-		f.StringVar(&passwordFile, "password-file", "", "Use the contents of this file as a password")
-		f.StringVar(&ttyFilename, "tty", "/dev/tty", "Terminal to read passwords on")
+		var from, to string
+		f := flag.NewFlagSet("open", flag.ExitOnError)
+		f.StringVar(&from, "from", "", "Box originates from this peer")
+		f.StringVar(&to, "to", "self", "Box is intended to be received by this identity.")
 		f.Parse(args[2:])
 
-		chunk := make([]byte, 0, argonSaltLen+chunkSize+secretbox.Overhead)
-		chunk, err := readChunk(in, chunk)
-		if err != nil {
-			return fmt.Errorf("Reading box: %s", err)
+		if from == "" {
+			return fmt.Errorf("-from required")
 		}
 
-		switch string(chunk) {
-		case "password":
-			var password []byte
+		if to == "" {
+			return fmt.Errorf("-to required")
+		}
 
-			if askPassword && passwordFile == "" {
-				tty, err := os.Open(ttyFilename)
-				if err != nil {
-					return fmt.Errorf("Opening TTY: %s", err)
-				}
+		senderPublicKey, err := loadPeer(path.Join(boxdir, from))
+		if err != nil {
+			return fmt.Errorf("Loading peer: %s", err)
+		}
 
-				readPassword := newPasswordReader(tty)
+		_, receiverSecretKey, err := loadIdentity(path.Join(boxdir, to))
+		if err != nil {
+			return fmt.Errorf("Loading identity: %s", err)
+		}
 
-				passwordString, err := readPassword("Password: ")
-				if err != nil {
-					return fmt.Errorf("Reading password: %s", err)
-				}
+		var sharedKey [32]byte
+		box.Precompute(&sharedKey, senderPublicKey, receiverSecretKey)
 
-				password = []byte(passwordString)
-			} else if !askPassword && passwordFile != "" {
-				var err error
-				password, err = ioutil.ReadFile(passwordFile)
-				if err != nil {
-					return fmt.Errorf("Reading password file: %s", err)
-				}
-			} else if !askPassword && passwordFile == "" {
-				return fmt.Errorf("-password or -password-file is needed to decode a password box")
-			} else {
-				return fmt.Errorf("-password and -password-file cannot be used together")
+		chunk := make([]byte, maxChunkSize)
+		buf := make([]byte, maxChunkSize-24-box.Overhead)
+
+		for {
+			n, err := readChunk(in, chunk)
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				return fmt.Errorf("Reading sealed chunk: %s", err)
 			}
 
-			chunk, err := readChunk(in, chunk[:0])
-			if err != nil {
-				return fmt.Errorf("Reading box: %s", err)
+			if n < 24 {
+				return fmt.Errorf("Chunk is too small")
 			}
 
-			if len(chunk) != argonSaltLen+4+4 {
-				return fmt.Errorf("Expected parameter chunk to be 24 bytes")
+			var nonce [24]byte
+			copy(nonce[:], chunk[:24])
+
+			buf, ok := box.OpenAfterPrecomputation(buf[:0], chunk[24:n], &nonce, &sharedKey)
+			if !ok {
+				return fmt.Errorf("Failed to unseal chunk")
 			}
 
-			salt := chunk[0:argonSaltLen]
-			time := binary.LittleEndian.Uint32(chunk[argonSaltLen+0 : argonSaltLen+4])
-			memory := binary.LittleEndian.Uint32(chunk[argonSaltLen+4 : argonSaltLen+8])
-
-			keySlice := argon2.IDKey(password, salt, time, memory, uint8(runtime.NumCPU()), 32)
-
-			var key [32]byte
-			copy(key[:], keySlice)
-
-			payload := make([]byte, 0, 16*1024)
-
-			for {
-				chunk, err := readChunk(in, chunk[:0])
-				if err == io.EOF {
-					break
-				} else if err != nil {
-					return fmt.Errorf("Reading box: %s", err)
-				}
-
-				var nonce [24]byte
-				copy(nonce[:], chunk[:24])
-
-				encryptedPayload := chunk[24:]
-
-				payload, ok := secretbox.Open(payload[:0], encryptedPayload, &nonce, &key)
-				if !ok {
-					return fmt.Errorf("Decryption failed")
-				}
-
-				if _, err := out.Write(payload); err != nil {
-					return fmt.Errorf("Reading box: %s", err)
-				}
+			if _, err := out.Write(buf); err != nil {
+				return fmt.Errorf("Writing out message: %s", err)
 			}
-		default:
-			return fmt.Errorf("Unsupported box type: %q", chunk)
 		}
 	case "new-identity":
-		panic("unsupported")
-	case "list-identities":
-		panic("unsupported")
-	case "list-contacts":
-		panic("unsupported")
+		var name string
+		f := flag.NewFlagSet("new-identity", flag.ExitOnError)
+		f.StringVar(&name, "name", "self", "Name of identity to create.")
+		f.Parse(args[2:])
+
+		seed := make([]byte, 32)
+		if _, err := rand.Read(seed); err != nil {
+			return err
+		}
+
+		if err := os.MkdirAll(boxdir, 0700); err != nil {
+			return err
+		}
+
+		out, err := os.OpenFile(path.Join(boxdir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0400)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+
+		if err := pem.Encode(out, &pem.Block{
+			Type:  "BOX SECRET SEED",
+			Bytes: seed,
+		}); err != nil {
+			return err
+		}
+	case "add-peer":
+		var name, publicKeyHex string
+		f := flag.NewFlagSet("add-peer", flag.ExitOnError)
+		f.StringVar(&name, "name", "self", "Name of peer to add")
+		f.StringVar(&publicKeyHex, "key", "", "Public key of peer")
+		f.Parse(args[2:])
+
+		publicKey, err := hex.DecodeString(publicKeyHex)
+		if err != nil {
+			return err
+		}
+
+		if err := os.MkdirAll(boxdir, 0700); err != nil {
+			return err
+		}
+
+		out, err := os.OpenFile(path.Join(boxdir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0400)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+
+		if err := pem.Encode(out, &pem.Block{
+			Type:  "BOX PUBLIC KEY",
+			Bytes: publicKey,
+		}); err != nil {
+			return err
+		}
+	case "list":
+		names := args[2:]
+
+		if len(names) == 0 {
+			dir, err := os.Open(boxdir)
+			if os.IsNotExist(err) {
+				return nil
+			} else if err != nil {
+				return fmt.Errorf("Opening %s: %s", boxdir, err)
+			}
+
+			names, err = dir.Readdirnames(-1)
+			if err != nil {
+				return fmt.Errorf("Reading entries in %s: %s", boxdir, err)
+			}
+		}
+
+		for _, name := range names {
+			publicKey, err := loadPeer(path.Join(boxdir, name))
+			if err != nil {
+				return fmt.Errorf("Loading peer %s: %s", name, err)
+			}
+
+			fmt.Printf("%s %x\n", name, publicKey[:])
+		}
 	default:
 		return fmt.Errorf("Unknown command %s", args[1])
 	}
