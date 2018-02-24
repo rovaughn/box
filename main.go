@@ -298,6 +298,10 @@ func doMain(args []string) error {
 			return err
 		}
 
+		if len(publicKey) != 32 {
+			return fmt.Errorf("Public key has wrong length")
+		}
+
 		if err := os.MkdirAll(boxdir, 0700); err != nil {
 			return err
 		}
