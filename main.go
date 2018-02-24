@@ -103,11 +103,11 @@ func doMain(args []string) error {
 	switch args[1] {
 	case "seal":
 		if terminal.IsTerminal(int(os.Stdin.Fd())) {
-			fmt.Fprintln(os.Stderr, "Note: reading from stdin")
+			fmt.Fprintln(os.Stderr, "Note: reading payload from stdin")
 		}
 
 		if terminal.IsTerminal(int(os.Stdout.Fd())) {
-			return fmt.Errorf("stdout is a terminal")
+			return fmt.Errorf("Refusing to write sealed data to a terminal")
 		}
 
 		var from, to string
@@ -171,11 +171,7 @@ func doMain(args []string) error {
 		}
 	case "open":
 		if terminal.IsTerminal(int(os.Stdin.Fd())) {
-			fmt.Fprintln(os.Stderr, "Note: reading from stdin")
-		}
-
-		if terminal.IsTerminal(int(os.Stdout.Fd())) {
-			return fmt.Errorf("stdout is a terminal")
+			return fmt.Errorf("Refusing to read sealed payload from terminal")
 		}
 
 		var from, to string
