@@ -10,6 +10,10 @@
 	box seal [-from IDENTITY] -to PEER <MESSAGE >SEALED
 	box open -from PEER [-to IDENTITY] <SEALED >MESSAGE
 
+## INSTALL
+
+	go get github.com/rovaughn/box
+
 ## EXAMPLE
 
 Let's say Alice wants to send a secret file to Bob.  Alice wants to make sure
