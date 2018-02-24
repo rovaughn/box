@@ -85,9 +85,20 @@ func loadEntity(name string) (*entity, error) {
 	return &entity, nil
 }
 
+func usage() {
+	fmt.Fprintln(os.Stderr, "box help")
+	fmt.Fprintln(os.Stderr, "box new-identity [-name NAME]")
+	fmt.Fprintln(os.Stderr, "box peer -name NAME -key PUBLICKEY")
+	fmt.Fprintln(os.Stderr, "box list [NAME ...]")
+	fmt.Fprintln(os.Stderr, "box seal [-from IDENTITY] -to PEER <MESSAGE >SEALED")
+	fmt.Fprintln(os.Stderr, "box open -from PEER [-to IDENTITY] <SEALED >MESSAGE")
+	fmt.Fprintln(os.Stderr, "")
+}
+
 func doMain(args []string) error {
 	if len(args) < 2 {
-		args = []string{"box", "help"}
+		usage()
+		return fmt.Errorf("Command required")
 	}
 
 	boxdir := os.Getenv("BOXDIR")
@@ -102,21 +113,8 @@ func doMain(args []string) error {
 
 	switch args[1] {
 	case "help":
-		fmt.Fprintln(os.Stderr, "box help")
-		fmt.Fprintln(os.Stderr, "box new-identity [-name NAME]")
-		fmt.Fprintln(os.Stderr, "box peer -name NAME -key PUBLICKEY")
-		fmt.Fprintln(os.Stderr, "box list [NAME ...]")
-		fmt.Fprintln(os.Stderr, "box seal [-from IDENTITY] -to PEER <MESSAGE >SEALED")
-		fmt.Fprintln(os.Stderr, "box open -from PEER [-to IDENTITY] <SEALED >MESSAGE")
+		usage()
 	case "seal":
-		if terminal.IsTerminal(int(os.Stdin.Fd())) {
-			fmt.Fprintln(os.Stderr, "Note: reading payload from stdin")
-		}
-
-		if terminal.IsTerminal(int(os.Stdout.Fd())) {
-			return fmt.Errorf("Refusing to write sealed data to a terminal")
-		}
-
 		var from, to string
 		f := flag.NewFlagSet("seal", flag.ExitOnError)
 		f.StringVar(&from, "from", "self", "Box is authenticated as coming from this identity")
@@ -124,10 +122,12 @@ func doMain(args []string) error {
 		f.Parse(args[2:])
 
 		if from == "" {
+			usage()
 			return fmt.Errorf("-from required")
 		}
 
 		if to == "" {
+			usage()
 			return fmt.Errorf("-to required")
 		}
 
@@ -155,6 +155,14 @@ func doMain(args []string) error {
 		buf := make([]byte, maxChunkSize-24-box.Overhead)
 		chunk := make([]byte, maxChunkSize)
 
+		if terminal.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Fprintln(os.Stderr, "Note: reading payload from stdin")
+		}
+
+		if terminal.IsTerminal(int(os.Stdout.Fd())) {
+			return fmt.Errorf("Refusing to write sealed data to a terminal")
+		}
+
 		for {
 			n, err := os.Stdin.Read(buf)
 			if n == 0 && err == io.EOF {
@@ -177,10 +185,6 @@ func doMain(args []string) error {
 			}
 		}
 	case "open":
-		if terminal.IsTerminal(int(os.Stdin.Fd())) {
-			return fmt.Errorf("Refusing to read sealed payload from terminal")
-		}
-
 		var from, to string
 		f := flag.NewFlagSet("open", flag.ExitOnError)
 		f.StringVar(&from, "from", "", "Box originates from this peer")
@@ -188,10 +192,12 @@ func doMain(args []string) error {
 		f.Parse(args[2:])
 
 		if from == "" {
+			usage()
 			return fmt.Errorf("-from required")
 		}
 
 		if to == "" {
+			usage()
 			return fmt.Errorf("-to required")
 		}
 
@@ -218,6 +224,10 @@ func doMain(args []string) error {
 
 		chunk := make([]byte, maxChunkSize)
 		buf := make([]byte, maxChunkSize-24-box.Overhead)
+
+		if terminal.IsTerminal(int(os.Stdin.Fd())) {
+			return fmt.Errorf("Refusing to read sealed payload from terminal")
+		}
 
 		for {
 			n, err := readChunk(os.Stdin, chunk)
@@ -387,6 +397,7 @@ func doMain(args []string) error {
 			}
 		}
 	default:
+		usage()
 		return fmt.Errorf("Unknown command %s", args[1])
 	}
 
@@ -395,7 +406,7 @@ func doMain(args []string) error {
 
 func main() {
 	if err := doMain(os.Args); err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		os.Exit(1)
 	}
 }
