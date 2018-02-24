@@ -18,8 +18,8 @@ cd testdir
 BOXDIR=alice box new-identity
 BOXDIR=bob box new-identity
 
-alicepk=$(BOXDIR=alice box list self | cut -d' ' -f2)
-bobpk=$(BOXDIR=bob box list self | cut -d' ' -f2)
+alicepk=$(BOXDIR=alice box list -only-key self)
+bobpk=$(BOXDIR=bob box list -only-key self)
 
 BOXDIR=alice box add-peer -name bob -key "$bobpk"
 BOXDIR=bob box add-peer -name alice -key "$alicepk"

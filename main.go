@@ -49,45 +49,39 @@ func readChunk(r io.Reader, chunk []byte) (int, error) {
 	return io.ReadFull(r, chunk[:n])
 }
 
-func loadPeer(name string) (*[32]byte, error) {
+type entity struct {
+	publicKey *[32]byte
+	secretKey *[32]byte
+}
+
+func loadEntity(name string) (*entity, error) {
 	data, err := ioutil.ReadFile(name)
 	if err != nil {
 		return nil, err
 	}
 
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, fmt.Errorf("Did not find PEM data")
+	var entity entity
+
+	for {
+		block, rest := pem.Decode(data)
+		if block == nil {
+			break
+		}
+
+		if block.Type == "BOX SECRET KEY" {
+			var key [32]byte
+			copy(key[:], block.Bytes)
+			entity.secretKey = &key
+		} else if block.Type == "BOX PUBLIC KEY" {
+			var key [32]byte
+			copy(key[:], block.Bytes)
+			entity.publicKey = &key
+		}
+
+		data = rest
 	}
 
-	if block.Type == "BOX SECRET SEED" {
-		publicKey, _, err := box.GenerateKey(bytes.NewReader(block.Bytes))
-		return publicKey, err
-	} else if block.Type == "BOX PUBLIC KEY" {
-		var publicKey [32]byte
-		copy(publicKey[:], block.Bytes)
-		return &publicKey, nil
-	} else {
-		return nil, fmt.Errorf("Expected peer to have BOX SECRET SEED or BOX PUBLIC KEY blocks")
-	}
-}
-
-func loadIdentity(name string) (*[32]byte, *[32]byte, error) {
-	data, err := ioutil.ReadFile(name)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, nil, fmt.Errorf("Did not find PEM data")
-	}
-
-	if block.Type != "BOX SECRET SEED" {
-		return nil, nil, fmt.Errorf("Expected identity file to contain BOX SECRET SEED")
-	}
-
-	return box.GenerateKey(bytes.NewReader(block.Bytes))
+	return &entity, nil
 }
 
 func doMain(args []string, in io.Reader, out io.Writer) error {
@@ -121,18 +115,18 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 			return fmt.Errorf("-to required")
 		}
 
-		_, senderSecretKey, err := loadIdentity(path.Join(boxdir, from))
+		sender, err := loadEntity(path.Join(boxdir, from))
 		if err != nil {
 			return fmt.Errorf("Loading identity: %s", err)
 		}
 
-		receiverPublicKey, err := loadPeer(path.Join(boxdir, to))
+		receiver, err := loadEntity(path.Join(boxdir, to))
 		if err != nil {
 			return fmt.Errorf("Loading peer: %s", err)
 		}
 
 		var sharedKey [32]byte
-		box.Precompute(&sharedKey, receiverPublicKey, senderSecretKey)
+		box.Precompute(&sharedKey, receiver.publicKey, sender.secretKey)
 
 		buf := make([]byte, maxChunkSize-24-box.Overhead)
 		chunk := make([]byte, maxChunkSize)
@@ -173,18 +167,18 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 			return fmt.Errorf("-to required")
 		}
 
-		senderPublicKey, err := loadPeer(path.Join(boxdir, from))
+		sender, err := loadEntity(path.Join(boxdir, from))
 		if err != nil {
 			return fmt.Errorf("Loading peer: %s", err)
 		}
 
-		_, receiverSecretKey, err := loadIdentity(path.Join(boxdir, to))
+		receiver, err := loadEntity(path.Join(boxdir, to))
 		if err != nil {
 			return fmt.Errorf("Loading identity: %s", err)
 		}
 
 		var sharedKey [32]byte
-		box.Precompute(&sharedKey, senderPublicKey, receiverSecretKey)
+		box.Precompute(&sharedKey, sender.publicKey, receiver.secretKey)
 
 		chunk := make([]byte, maxChunkSize)
 		buf := make([]byte, maxChunkSize-24-box.Overhead)
@@ -224,6 +218,11 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 			return err
 		}
 
+		publicKey, secretKey, err := box.GenerateKey(bytes.NewReader(seed))
+		if err != nil {
+			return err
+		}
+
 		if err := os.MkdirAll(boxdir, 0700); err != nil {
 			return err
 		}
@@ -237,6 +236,20 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 		if err := pem.Encode(out, &pem.Block{
 			Type:  "BOX SECRET SEED",
 			Bytes: seed,
+		}); err != nil {
+			return err
+		}
+
+		if err := pem.Encode(out, &pem.Block{
+			Type:  "BOX SECRET KEY",
+			Bytes: secretKey[:],
+		}); err != nil {
+			return err
+		}
+
+		if err := pem.Encode(out, &pem.Block{
+			Type:  "BOX PUBLIC KEY",
+			Bytes: publicKey[:],
 		}); err != nil {
 			return err
 		}
@@ -269,7 +282,18 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 			return err
 		}
 	case "list":
-		names := args[2:]
+		var onlyKey bool
+		f := flag.NewFlagSet("list", flag.ExitOnError)
+		f.BoolVar(&onlyKey, "only-key", false, "Only show public key (for scripts)")
+		f.Parse(args[2:])
+
+		names := f.Args()
+
+		type row struct {
+			name      string
+			kind      string
+			publicKey *[32]byte
+		}
 
 		if len(names) == 0 {
 			dir, err := os.Open(boxdir)
@@ -285,13 +309,42 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 			}
 		}
 
+		rows := make([]row, 0)
+		longestNameLen := 0
+
 		for _, name := range names {
-			publicKey, err := loadPeer(path.Join(boxdir, name))
-			if err != nil {
-				return fmt.Errorf("Loading peer %s: %s", name, err)
+			if len(name) > longestNameLen {
+				longestNameLen = len(name)
 			}
 
-			fmt.Printf("%s %x\n", name, publicKey[:])
+			entity, err := loadEntity(path.Join(boxdir, name))
+			if err != nil {
+				return err
+			}
+
+			kind := "none"
+			if entity.publicKey != nil && entity.secretKey == nil {
+				kind = "peer"
+			} else if entity.publicKey != nil && entity.secretKey != nil {
+				kind = "identity"
+			}
+
+			rows = append(rows, row{
+				name:      name,
+				kind:      kind,
+				publicKey: entity.publicKey,
+			})
+		}
+
+		if onlyKey {
+			for _, row := range rows {
+				fmt.Printf("%x\n", *row.publicKey)
+			}
+		} else {
+			fmt.Printf("%-[1]*s  %-8s  %-64s\n", longestNameLen, "NAME", "KIND", "PUBLIC KEY")
+			for _, row := range rows {
+				fmt.Printf("%-[1]*s  %-8s  %-64x\n", longestNameLen, row.name, row.kind, *row.publicKey)
+			}
 		}
 	default:
 		return fmt.Errorf("Unknown command %s", args[1])
