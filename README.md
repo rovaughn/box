@@ -27,7 +27,7 @@ Alice and Bob start by creating new identities:
 	NAME  TYPE      PUBLIC KEY
 	self  identity  97af76065f8d6fedba16a43120b0f02cf19787b9f8cbea111162f5324824e543
 
-	alice$ box new-idenitty
+	alice$ box new-identity
 	alice$ box list
 	NAME  TYPE      PUBLIC KEY
 	self  identity  b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
@@ -110,14 +110,15 @@ with a unique nonce.
 
 - Generate an identity from a password (hash with argon2)
 - Benchmarks.
-- If `-from` is missing with `open`, the public key could automatically be
-  determined by testing all keys.
-- When `-from` and `-to` are the same, could be faster to just use secretbox.
+- Support automatically determining `-from` value (perhaps by either omitting
+  `-from` or using `-from auto`)
+- When `-from` and `-to` are the same, would be faster to just use secretbox.
 - `-from anonymous` (create an ephemeral identity and send the public key with
   the sealed message; only the receiver can decrypt it but it is not signed as
   coming from any particular identity.
-- `-to anyone` essentially amounts to signing the payload (possibly with
-  ed25519 for speed) and not encrypting it.
+- `-to anyone` essentially amounts to signing the payload.  It would be most
+  efficient to do this with just ed25519 since encryption is not required, but
+  it would require a new public key.
 - File-aware syntax instead of just stdio.  Would allow some safety features
   such as making sure the whole file authenticates before moving the result to
   the target.
