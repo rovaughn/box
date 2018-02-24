@@ -12,11 +12,56 @@ SYNOPSIS
 	box seal [-from IDENTITY] -to PEER <MESSAGE >SEALED
 	box open [-from PEER] [-to IDENTITY] <SEALED >MESSAGE
 
-DESCRIPTION
-===========
+EXAMPLE
+=======
 
-**box** is a utility for encrypting, authenticating, and decrypting data using
-public and secret keys.
+Let's say Alice wants to send a secret file to Bob.  Alice wants to make sure
+the encrypted file can only be read by Bob.  Bob wants to make sure that it was
+actually Alice that sent it.
+
+Alice and Bob start by creating new identities:
+
+	bob$ box new-identity
+	bob$ box list
+	name  type      public key
+	----  --------  ----------------------------------------------------------------
+	self  identity  97af76065f8d6fedba16a43120b0f02cf19787b9f8cbea111162f5324824e543
+
+	alice$ box new-idenitty
+	alice$ box list
+	name  type      public key
+	----  --------  ----------------------------------------------------------------
+	self  identity  b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
+
+These public keys represent Alice and Bob's respective identities.  Alice and
+Bob can now exchange these public keys (it's ok if an eavesdropper gets ahold
+of a public key).
+
+Next Alice and Bob add each other's public keys as peers:
+
+	bob$ box add-peer -name alice -key b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
+	bob$ box list
+	name   type      public key
+	----   --------  ----------------------------------------------------------------
+	self   identity  97af76065f8d6fedba16a43120b0f02cf19787b9f8cbea111162f5324824e543
+	alice  peer      b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
+
+	alice$ box add-peer -name bob -key 97af76065f8d6fedba16a43120b0f02cf19787b9f8cbea111162f5324824e543
+	alice$ box list
+	name  type      public key
+	----  --------  ----------------------------------------------------------------
+	self  identity  b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
+	bob   peer      97af76065f8d6fedba16a43120b0f02cf19787b9f8cbea111162f5324824e543
+
+Now Alice can seal a message and send it to Bob:
+
+	alice$ echo 'attack at dawn' | box seal -to bob >message.sealed
+
+	bob$ box seal -from alice <message.sealed
+	attack at dawn
+
+BOX DIRECTORY
+=============
 
 Public and secret keys are stored in **$HOME/.box/**, though this can be
 overriden by setting the **$BOXDIR** environment variable.  **Identities** and
@@ -26,31 +71,8 @@ The default identity is called **self**.
 
 For example, Alice's secret keypair representing her identity would be stored
 at **/home/alice/.box/self**.  If Alice knows Bob's public key, she would store
-his key at **$HOME/.box/bob**.  You do not need to edit these yourself; keys
-are managed using the **box** tool.
-
-A payload can be sealed using **box seal [-from IDENTITY] -to PEER**, where the
-payload is read from stdin and the sealed payload ie written to stdout.  If
-IDENTITY is ommitted it's assumed to be self.  PEER is required, but can also
-be self.  The sealed message will only be able to be opened by PEER; PEER will
-be able to verify it was sent by IDENTITY.
-
-A sealed payload can be unsealed using **box open -from PEER [-to IDENTITY]**,
-where the sealed payload is read on stdin and written on stdout.  The message
-is expected to be from the given PEER.  If it's not, this command will fail.
-IDENTITY is the expected receiver of the box, and is used to decrypt it.  It
-defaults to self.
-
-**box new-identity [-name NAME]** generates a new public/secret keypair with
-the given name.  If no name is given it defaults to self.  If either key
-already exists, it will fail.
-
-**box add-peer -name NAME -key PUBLICKEY** adds PUBLICKEY to the box directory
-under the given name as a peer.  PUBLICKEY is hex-encoded.
-
-**box list [NAME ...]**, shows the name, type, and public key (hex-encoded)
-associated with the given names.  If no names are given, all stored entities
-will be listed.
+his key at **/home/alice/.box/bob**.  You do not need to edit these yourself;
+keys are managed using the **box** tool.
 
 TODO
 ====
