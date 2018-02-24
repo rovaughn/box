@@ -163,6 +163,10 @@ func doMain(args []string) error {
 			return fmt.Errorf("Refusing to write sealed data to a terminal")
 		}
 
+		if err := emitChunk(os.Stdout, []byte("v0")); err != nil {
+			return fmt.Errorf("Emitting header chunk: %s", err)
+		}
+
 		for {
 			n, err := os.Stdin.Read(buf)
 			if n == 0 && err == io.EOF {
@@ -227,6 +231,17 @@ func doMain(args []string) error {
 
 		if terminal.IsTerminal(int(os.Stdin.Fd())) {
 			return fmt.Errorf("Refusing to read sealed payload from terminal")
+		}
+
+		n, err := readChunk(os.Stdin, chunk)
+		if err == io.EOF {
+			return fmt.Errorf("Expected header chunk")
+		} else if err != nil {
+			return fmt.Errorf("Reading header chunk: %s", err)
+		}
+
+		if !bytes.Equal(chunk[:n], []byte("v0")) {
+			return fmt.Errorf("Unknown version")
 		}
 
 		for {
