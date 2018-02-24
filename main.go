@@ -120,9 +120,17 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 			return fmt.Errorf("Loading identity: %s", err)
 		}
 
+		if sender.publicKey == nil || sender.secretKey == nil {
+			return fmt.Errorf("Sender is not an identity")
+		}
+
 		receiver, err := loadEntity(path.Join(boxdir, to))
 		if err != nil {
 			return fmt.Errorf("Loading peer: %s", err)
+		}
+
+		if receiver.publicKey == nil {
+			return fmt.Errorf("Receiver is not a peer")
 		}
 
 		var sharedKey [32]byte
@@ -172,9 +180,17 @@ func doMain(args []string, in io.Reader, out io.Writer) error {
 			return fmt.Errorf("Loading peer: %s", err)
 		}
 
+		if sender.publicKey == nil {
+			return fmt.Errorf("Sender is not a peer")
+		}
+
 		receiver, err := loadEntity(path.Join(boxdir, to))
 		if err != nil {
 			return fmt.Errorf("Loading identity: %s", err)
+		}
+
+		if receiver.publicKey == nil || receiver.secretKey == nil {
+			return fmt.Errorf("Receiver is not an identity")
 		}
 
 		var sharedKey [32]byte
