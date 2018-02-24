@@ -33,8 +33,7 @@ Alice and Bob start by creating new identities:
 	self  identity  b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
 
 These public keys represent Alice and Bob's respective identities.  Alice and
-Bob can now exchange these public keys (it's ok if an eavesdropper gets ahold
-of a public key).
+Bob can exchange these keys over an insecure channel like SMS or email.
 
 Next Alice and Bob add each other's public keys as peers:
 
