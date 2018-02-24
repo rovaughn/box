@@ -99,6 +99,13 @@ at **/home/alice/.box/self**.  If Alice knows Bob's public key, she would store
 his key at **/home/alice/.box/bob**.  You do not need to edit these yourself;
 keys are managed using the **box** tool.
 
+## CRYPTOGRAPHY
+
+All encryption is done with [golang's implementation of NaCl's box
+function](https://godoc.org/golang.org/x/crypto/nacl/box).  Unsealed payloads
+are read in chunks of at most 64 KiB, which are each independently encrypted
+with a unique nonce.
+
 ## TODO/IDEAS
 
 - Generate an identity from a password (hash with argon2)
