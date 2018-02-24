@@ -24,7 +24,7 @@ bobpk=$(BOXDIR=bob box list -only-key self)
 BOXDIR=alice box add-peer -name bob -key "$bobpk"
 BOXDIR=bob box add-peer -name alice -key "$alicepk"
 
-echo 'attack at dawn' >message
+dd if=/dev/urandom of=message bs=1024 count=128
 BOXDIR=alice box seal -to bob <message >message.sealed
 BOXDIR=bob box open -from alice <message.sealed >message.unsealed
 
