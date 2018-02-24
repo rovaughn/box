@@ -6,7 +6,7 @@
 
 	box new-identity [-name NAME]
 	box add-peer -name NAME -key PUBLICKEY
-	box list [NAME ...]
+	box list [-only-key] [NAME ...]
 	box seal [-from IDENTITY] -to PEER <MESSAGE >SEALED
 	box open -from PEER [-to IDENTITY] <SEALED >MESSAGE
 
@@ -24,14 +24,12 @@ Alice and Bob start by creating new identities:
 
 	bob$ box new-identity
 	bob$ box list
-	name  type      public key
-	----  --------  ----------------------------------------------------------------
+	NAME  TYPE      PUBLIC KEY
 	self  identity  97af76065f8d6fedba16a43120b0f02cf19787b9f8cbea111162f5324824e543
 
 	alice$ box new-idenitty
 	alice$ box list
-	name  type      public key
-	----  --------  ----------------------------------------------------------------
+	NAME  TYPE      PUBLIC KEY
 	self  identity  b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
 
 These public keys represent Alice and Bob's respective identities.  Alice and
@@ -42,15 +40,13 @@ Next Alice and Bob add each other's public keys as peers:
 
 	bob$ box add-peer -name alice -key b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
 	bob$ box list
-	name   type      public key
-	----   --------  ----------------------------------------------------------------
+	NAME   TYPE      PUBLIC KEY
 	self   identity  97af76065f8d6fedba16a43120b0f02cf19787b9f8cbea111162f5324824e543
 	alice  peer      b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
 
 	alice$ box add-peer -name bob -key 97af76065f8d6fedba16a43120b0f02cf19787b9f8cbea111162f5324824e543
 	alice$ box list
-	name  type      public key
-	----  --------  ----------------------------------------------------------------
+	NAME  TYPE      PUBLIC KEY
 	self  identity  b3dba84ec8805b3ee6953311a341426483b4c52db37634c540a388ffae2fd32e
 	bob   peer      97af76065f8d6fedba16a43120b0f02cf19787b9f8cbea111162f5324824e543
 
@@ -73,9 +69,11 @@ the identity already exists this command will fail.
 Store the given hex-encoded public key as a peer with the given NAME.  If the
 peer already exists this command will fail.
 
-	box list [NAME ...]
+	box list [-only-key] [NAME ...]
 
-List all stored peers and identities.  
+List stored peers/identities and their public keys.  If no NAMEs are given, all
+entities are shown.  If -only-key is provided, nothing but public keys are
+shown, which can be useful for scripts/copy pasting.
 
 	box seal [-from IDENTITY] -to PEER <MESSAGE >SEALED
 
