@@ -31,6 +31,7 @@ import (
 	"os"
 	"os/user"
 	"path"
+	"regexp"
 )
 
 const maxChunkSize = 16 * 1024
@@ -109,6 +110,17 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "box seal [-from IDENTITY] -to PEER <MESSAGE >SEALED")
 	fmt.Fprintln(os.Stderr, "box open -from PEER [-to IDENTITY] <SEALED >MESSAGE")
 	fmt.Fprintln(os.Stderr, "")
+}
+
+const nameReString = `[a-zA-Z0-9-_]+`
+
+var nameRe = regexp.MustCompile(nameReString)
+
+func validateName(name string) error {
+	if !nameRe.MatchString(name) {
+		return fmt.Errorf("Invalid name %q; must have form %s", name, nameReString)
+	}
+	return nil
 }
 
 func doMain(args []string) error {
@@ -290,6 +302,10 @@ func doMain(args []string) error {
 		f.StringVar(&name, "name", "self", "Name of identity to create.")
 		f.Parse(args[2:])
 
+		if err := validateName(name); err != nil {
+			return err
+		}
+
 		seed := make([]byte, 32)
 		if _, err := rand.Read(seed); err != nil {
 			return err
@@ -336,6 +352,20 @@ func doMain(args []string) error {
 		f.StringVar(&name, "name", "self", "Name of peer to add")
 		f.StringVar(&publicKeyHex, "key", "", "Public key of peer")
 		f.Parse(args[2:])
+
+		if name == "" {
+			usage()
+			return fmt.Errorf("-name is required")
+		}
+
+		if publicKeyHex == "" {
+			usage()
+			return fmt.Errorf("-key is required")
+		}
+
+		if err := validateName(name); err != nil {
+			return err
+		}
 
 		publicKey, err := hex.DecodeString(publicKeyHex)
 		if err != nil {
