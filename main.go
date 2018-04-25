@@ -105,7 +105,7 @@ func loadEntity(name string) (*entity, error) {
 func usage() {
 	fmt.Fprintln(os.Stderr, "box help")
 	fmt.Fprintln(os.Stderr, "box new-identity [-name NAME]")
-	fmt.Fprintln(os.Stderr, "box peer -name NAME -key PUBLICKEY")
+	fmt.Fprintln(os.Stderr, "box add-peer -name NAME -key PUBLICKEY")
 	fmt.Fprintln(os.Stderr, "box list [NAME ...]")
 	fmt.Fprintln(os.Stderr, "box seal [-from IDENTITY] -to PEER <MESSAGE >SEALED")
 	fmt.Fprintln(os.Stderr, "box open -from PEER [-to IDENTITY] <SEALED >MESSAGE")
@@ -269,7 +269,7 @@ func doMain(args []string) error {
 		}
 
 		if !bytes.Equal(chunk[:n], []byte("v0")) {
-			return fmt.Errorf("Unknown version")
+			return fmt.Errorf("Unknown version; got chunk %q", chunk[:n])
 		}
 
 		for {
